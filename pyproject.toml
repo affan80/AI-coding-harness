@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Autonomous AI software engineering harness"
 requires-python = ">=3.11"
 
+[project.scripts]
+harness = "tui.cli:run"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
