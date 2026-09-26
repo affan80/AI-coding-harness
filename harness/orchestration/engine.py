@@ -706,7 +706,12 @@ class IntegratedEngine:
     async def _finish_failed(
         self, detail: str, reason: TerminalReason = TerminalReason.VERIFICATION_FAILED
     ) -> IntegratedResult:
-        self.orch.fail(reason, detail)
+        # Budget exhaustion already terminalizes the session inside the
+        # orchestrator (with a budget-snapshot evidence ref); only fail the
+        # session here when it is still active, or this would raise
+        # InvalidTransitionError on every exhausted-budget run.
+        if self.orch.session.terminal is None:
+            self.orch.fail(reason, detail)
         return self._build_result()
 
     def _pending_planning_steps(self) -> list[PlanningStep]:
