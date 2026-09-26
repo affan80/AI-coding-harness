@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from conftest import make_file
@@ -77,12 +76,10 @@ def test_npm_workspaces_monorepo(npm_monorepo: Path) -> None:
 def test_python_multi_root_monorepo(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     root.mkdir()
-    (root / "services/api/pyproject.toml").write_text(
-        '[project]\nname = "api"\ndependencies = ["fastapi"]\n'
-    )
-    (root / "services/worker/pyproject.toml").write_text(
-        '[project]\nname = "worker"\ndependencies = ["celery"]\n'
-    )
+    api_toml = '[project]\nname = "api"\ndependencies = ["fastapi"]\n'
+    worker_toml = '[project]\nname = "worker"\ndependencies = ["celery"]\n'
+    make_file(root, "services/api/pyproject.toml", api_toml)
+    make_file(root, "services/worker/pyproject.toml", worker_toml)
     make_file(root, "services/api/main.py")
     make_file(root, "services/worker/loop.py")
 

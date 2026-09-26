@@ -66,8 +66,8 @@ def npm_monorepo(tmp_path: Path) -> Path:
         json.dumps({"name": "mono", "workspaces": ["packages/*"], "scripts": {"test": "jest"}})
     )
     (root / "pnpm-workspace.yaml").write_text("packages:\n  - packages/*\n")
-    (root / "packages/app/package.json").write_text(json.dumps({"name": "app"}))
-    (root / "packages/lib/package.json").write_text(json.dumps({"name": "lib"}))
+    make_file(root, "packages/app/package.json", json.dumps({"name": "app"}))
+    make_file(root, "packages/lib/package.json", json.dumps({"name": "lib"}))
     make_file(root, "packages/app/src/main.ts")
     make_file(root, "packages/lib/src/util.ts")
     return root

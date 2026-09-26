@@ -11,7 +11,7 @@ import os
 from dataclasses import dataclass, field
 
 from .ignores import GITIGNORE_IGNORE_REASON, GitignoreStack, builtin_ignore_match
-from .models import FileEntry
+from .models import FileEntry, InventoryResult
 
 
 @dataclass

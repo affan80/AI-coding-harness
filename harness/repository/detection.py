@@ -106,7 +106,10 @@ def detect_languages(entries: list[FileEntry]) -> list[LanguageStat]:
         stat = counts.setdefault(language, [0, 0])
         stat[0] += 1
         stat[1] += entry.size
-    stats = [LanguageStat(lang, files, total_bytes) for lang, (files, total_bytes) in counts.items()]
+    stats = [
+        LanguageStat(lang, files, total_bytes)
+        for lang, (files, total_bytes) in counts.items()
+    ]
     stats.sort(key=lambda s: (-s.files, s.language))
     return stats
 

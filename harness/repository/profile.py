@@ -80,7 +80,9 @@ def _detect_commands(
 ) -> dict[str, str]:
     """Derive canonical project commands from existing project configuration."""
     commands: dict[str, str] = {}
-    python_manifests = [m for m in manifests if m.kind in ("pyproject.toml", "setup.py", "setup.cfg")]
+    python_manifests = [
+        m for m in manifests if m.kind in ("pyproject.toml", "setup.py", "setup.cfg")
+    ]
     has_requirements = any(m.kind.startswith("requirements") for m in manifests)
     has_tests = bool(test_locations)
     if (python_manifests or has_requirements) and ("pytest" in frameworks or has_tests):

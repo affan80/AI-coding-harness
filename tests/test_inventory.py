@@ -60,7 +60,7 @@ def test_gitignore_scoping_anchoring_and_dir_patterns(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     root.mkdir()
     (root / ".gitignore").write_text("logs/\n/topsecret.txt\ndata/*.tmp\n!data/keep.tmp\n")
-    (root / "sub" / ".gitignore").write_text("local.txt\n")
+    make_file(root, "sub/.gitignore", "local.txt\n")
     make_file(root, "logs/run.txt")
     make_file(root, "deep/logs/run.txt")
     make_file(root, "topsecret.txt")

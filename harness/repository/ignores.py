@@ -73,6 +73,7 @@ class IgnorePattern:
 
 def compile_ignore_line(line: str) -> IgnorePattern | None:
     """Compile one ignore-pattern line; return None for blank lines/comments."""
+    original = line
     if line.startswith(("\\#", "\\!")):
         line = line[1:]
     if not line or line.startswith("#"):
@@ -93,7 +94,7 @@ def compile_ignore_line(line: str) -> IgnorePattern | None:
     if not line:
         return None
     regex = re.compile(_translate(line, anchored))
-    return IgnorePattern(source=line, regex=regex, negated=negated, dir_only=dir_only)
+    return IgnorePattern(source=original, regex=regex, negated=negated, dir_only=dir_only)
 
 
 def _translate(pattern: str, anchored: bool) -> str:
