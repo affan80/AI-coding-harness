@@ -7,7 +7,9 @@ configured, everything outside it is denied as well.
 
 from __future__ import annotations
 
+import os
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 DEFAULT_DENY_PATTERNS = [
@@ -30,15 +32,42 @@ DEFAULT_DENY_PATTERNS = [
     r">\s*/dev/sd[a-z]",
 ]
 
+# Environment variables a sanitized child still needs to run ordinary tools:
+# PATH for executable lookup, HOME/TMPDIR for well-behaved CLIs, LANG/LC_ALL
+# and TERM for sane output encoding. Everything else in the harness
+# environment (tokens, API keys) stays behind the policy boundary.
+SANITIZED_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TERM")
+
 
 @dataclass
 class CommandPolicy:
-    """Decides whether a shell command may run."""
+    """Decides whether a shell command may run, and what environment it sees."""
 
     deny_patterns: list[str] = field(default_factory=lambda: list(DEFAULT_DENY_PATTERNS))
     allow_patterns: list[str] = field(default_factory=list)  # empty = allow rest
     max_output_bytes: int = 20_000
     default_timeout_seconds: float = 120.0
+    # Environment policy (issue #54): the child starts from a minimal allowlist
+    # by default, so harness secrets never reach model-suggested commands.
+    env_allowlist: list[str] = field(
+        default_factory=lambda: list(SANITIZED_ENV_KEYS)
+    )
+    env_extra: dict[str, str] = field(default_factory=dict)
+    inherit_environment: bool = False
+
+    def build_env(self, parent: Mapping[str, str] | None = None) -> dict[str, str]:
+        """Child-process environment per policy: sanitized unless told otherwise."""
+        parent_env = os.environ if parent is None else parent
+        if self.inherit_environment:
+            env = dict(parent_env)
+        else:
+            env = {
+                key: parent_env[key]
+                for key in self.env_allowlist
+                if key in parent_env
+            }
+        env.update(self.env_extra)
+        return env
 
     def check(self, command: str) -> tuple[bool, str]:
         """Return (allowed, reason). Denied commands are never executed."""
