@@ -72,7 +72,7 @@ def test_identical_proposal_is_rejected_as_not_materially_different():
         repair_description="Handle InvalidCredentialsError in the login route",
         fingerprint=None, outcome="failed",
     )
-    from harness.recovery.planner import _fingerprint
+    from harness.recovery.bounded_planner import _fingerprint
 
     prior = AttemptRecord(
         attempt=1, strategy="repair",
