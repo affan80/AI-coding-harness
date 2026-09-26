@@ -1,6 +1,6 @@
-from enum import Enum
 from dataclasses import dataclass, field
-from typing import List, Optional, Set
+from enum import Enum
+
 
 class StepAction(Enum):
     INSPECT = "inspect"
@@ -23,15 +23,15 @@ class PlanStep:
     target: str
     expected_evidence: str
     completion_criteria: str
-    dependencies: List[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
     status: StepStatus = StepStatus.PENDING
 
 @dataclass
 class Goal:
     id: str
     description: str
-    steps: List[PlanStep] = field(default_factory=list)
-    
+    steps: list[PlanStep] = field(default_factory=list)
+
     def is_verified(self) -> bool:
         """Returns True if there is a completed verification step."""
         verify_steps = [s for s in self.steps if s.action in (StepAction.VERIFY, StepAction.AUDIT)]
@@ -39,9 +39,9 @@ class Goal:
 
 @dataclass
 class ExecutionPlan:
-    goals: List[Goal] = field(default_factory=list)
-    
-    def get_step(self, step_id: str) -> Optional[PlanStep]:
+    goals: list[Goal] = field(default_factory=list)
+
+    def get_step(self, step_id: str) -> PlanStep | None:
         for goal in self.goals:
             for step in goal.steps:
                 if step.id == step_id:

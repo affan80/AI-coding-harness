@@ -1,7 +1,7 @@
 import math
 from dataclasses import dataclass, field
-from enum import IntEnum, Enum
-from typing import List, Dict, Any, Optional
+from enum import Enum, IntEnum
+
 
 @dataclass
 class ModelCapabilities:
@@ -32,7 +32,7 @@ class ContextItem:
     level: Level
     reason: str
     tokens: int = field(init=False)
-    
+
     def __post_init__(self):
         # Rough estimation: 1 token ~= 4 chars (as a fallback when tiktoken/etc isn't available)
         self.tokens = math.ceil(len(self.content) / 4)
@@ -40,14 +40,14 @@ class ContextItem:
 @dataclass
 class ContextMetrics:
     total_tokens: int = 0
-    tokens_by_category: Dict[str, int] = field(default_factory=dict)
+    tokens_by_category: dict[str, int] = field(default_factory=dict)
     compaction_events: int = 0
 
 class ContextManager:
     def __init__(self, capabilities: ModelCapabilities, safe_ratio: float = 0.8):
         self.capabilities = capabilities
         self.safe_capacity = int(capabilities.max_context_tokens * safe_ratio)
-        self.items: List[ContextItem] = []
+        self.items: list[ContextItem] = []
         self.metrics = ContextMetrics()
         self.metrics.tokens_by_category = {lvl.value: 0 for lvl in Level}
 
@@ -66,7 +66,7 @@ class ContextManager:
         for i in self.items:
             self.metrics.tokens_by_category[i.level.value] += i.tokens
 
-    def compact(self) -> List[ContextItem]:
+    def compact(self) -> list[ContextItem]:
         """
         Sort items by priority. Evict lowest priority items until within safe capacity.
         P0 items cannot be evicted even if they exceed capacity (though they shouldn't).
@@ -75,8 +75,8 @@ class ContextManager:
             return self.items
 
         self.metrics.compaction_events += 1
-        
-        # Sort items: P0 first (0), then P1 (1)... 
+
+        # Sort items: P0 first (0), then P1 (1)...
         self.items.sort(key=lambda x: x.priority)
 
         retained = []
@@ -94,8 +94,10 @@ class ContextManager:
         self.items = retained
         self._recalculate_metrics()
         return self.items
-    
+
     def get_context(self) -> str:
         """Assemble the final context string for the model."""
         compacted = self.compact()
-        return "\n\n".join([f"[{i.level.value}] {i.id} ({i.reason}):\n{i.content}" for i in compacted])
+        return "\n\n".join(
+            [f"[{i.level.value}] {i.id} ({i.reason}):\n{i.content}" for i in compacted]
+        )
