@@ -24,8 +24,14 @@ class Planner:
                 all_steps[step.id] = step
 
                 if step.action == StepAction.PATCH:
-                    # Enforce target scope constraint
-                    if not any(step.target.startswith(p) for p in self.allowed_paths):
+                    # Enforce target scope constraint (normalized so "src"
+                    # cannot be escaped by a sibling prefix like "src2/").
+                    normalized = step.target.lstrip("./")
+                    if not any(
+                        normalized == p.strip("./")
+                        or normalized.startswith(p.strip("./").rstrip("/") + "/")
+                        for p in self.allowed_paths
+                    ):
                         raise ValidationError(
                             f"Step {step.id} attempts to write to un-allowed target: {step.target}"
                         )
@@ -62,37 +68,93 @@ class Planner:
         for step_id in all_steps:
             dfs(step_id)
 
-    def get_next_runnable_step(self, plan: ExecutionPlan) -> PlanStep | None:
+    def get_runnable_steps(self, plan: ExecutionPlan) -> list[PlanStep]:
+        """All runnable steps in deterministic goal/step order (issue #49).
+
+        A step is runnable when it is PENDING and every dependency exists
+        and is COMPLETED — an unknown dependency blocks the step instead of
+        silently counting as satisfied.
+        """
+        runnable: list[PlanStep] = []
         for goal in plan.goals:
             for step in goal.steps:
-                if step.status == StepStatus.PENDING:
-                    deps_completed = True
-                    for dep_id in step.dependencies:
-                        dep_step = plan.get_step(dep_id)
-                        if dep_step and dep_step.status != StepStatus.COMPLETED:
-                            deps_completed = False
-                            break
-                    if deps_completed:
-                        return step
-        return None
+                if step.status is not StepStatus.PENDING:
+                    continue
+                if self._dependencies_satisfied(plan, step):
+                    runnable.append(step)
+        return runnable
+
+    @staticmethod
+    def _dependencies_satisfied(plan: ExecutionPlan, step: PlanStep) -> bool:
+        for dep_id in step.dependencies:
+            dep_step = plan.get_step(dep_id)
+            if dep_step is None or dep_step.status is not StepStatus.COMPLETED:
+                return False
+        return True
+
+    def get_next_runnable_step(self, plan: ExecutionPlan) -> PlanStep | None:
+        runnable = self.get_runnable_steps(plan)
+        return runnable[0] if runnable else None
+
+    def _dependents_of(self, goal_steps: list[PlanStep], failed_id: str) -> set[str]:
+        """The failed step plus everything transitively depending on it."""
+        affected = {failed_id}
+        changed = True
+        while changed:
+            changed = False
+            for step in goal_steps:
+                if step.id in affected:
+                    continue
+                if affected.intersection(step.dependencies):
+                    affected.add(step.id)
+                    changed = True
+        return affected
 
     def replan(
-        self, current_plan: ExecutionPlan, goal_id: str, new_steps: list[PlanStep]
+        self,
+        current_plan: ExecutionPlan,
+        goal_id: str,
+        new_steps: list[PlanStep],
+        *,
+        failed_step_id: str | None = None,
+        failure_evidence: str = "",
     ) -> ExecutionPlan:
+        """Bounded replacement plan after a classified failure (issue #50).
+
+        Only the failed step and its transitive dependents are replaced;
+        completed steps *and* unrelated pending steps of the goal are
+        retained so progress and evidence survive. ``new_steps`` enters as
+        PENDING (they are replacements, not completed work) and the whole
+        plan is re-validated before returning, so the orchestrator can
+        always identify the next runnable step deterministically.
         """
-        Replaces the steps of a specific goal with new_steps to recover from a failure.
-        Completed steps in that goal are retained. The entire plan is re-validated.
-        """
+        if len(new_steps) > self.max_steps:
+            raise ValidationError(
+                f"replacement plan exceeds policy maximum of {self.max_steps} steps"
+            )
+        replaced = False
         for goal in current_plan.goals:
-            if goal.id == goal_id:
-                retained_steps = [s for s in goal.steps if s.status == StepStatus.COMPLETED]
-                retained_ids = {s.id for s in retained_steps}
+            if goal.id != goal_id:
+                continue
+            replaced = True
+            if failed_step_id is None:
+                affected: set[str] = set()
+            else:
+                affected = self._dependents_of(goal.steps, failed_step_id)
 
-                for ns in new_steps:
-                    if ns.id not in retained_ids:
-                        retained_steps.append(ns)
-
-                goal.steps = retained_steps
+            retained: list[PlanStep] = []
+            for step in goal.steps:
+                if step.id in affected:
+                    continue  # replaced by new_steps
+                if step.status is StepStatus.FAILED:
+                    step.status = StepStatus.PENDING  # retry-able requeue
+                retained.append(step)
+            for new_step in new_steps:
+                new_step.status = StepStatus.PENDING
+                retained.append(new_step)
+            goal.steps = retained
+        if not replaced:
+            raise ValidationError(f"unknown goal {goal_id!r} in plan")
 
         self.validate_plan(current_plan)
         return current_plan

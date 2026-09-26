@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from harness.core.models import SessionStatus, UserRequest, new_session_id
+from harness.model.redaction import Redactor
 from harness.telemetry.models import ArtifactRef, ToolCallRecord
 
 # JSON document files written as whole atomic units. JSONL streams
@@ -71,11 +72,13 @@ class RunStore:
         run_dir: Path,
         session_id: str,
         clock: Callable[[], datetime] = _utc_now,
+        secrets: tuple[str, ...] | list[str] = (),
     ) -> None:
         self.run_dir = run_dir
         self.paths = RunPaths(run_dir=run_dir, artifacts_dir=run_dir / "artifacts")
         self.session_id = session_id
         self._clock = clock
+        self._redactor = Redactor(secrets)
         self._event_seq = 0
         self._tool_seq = 0
         self._patch_count = 0
@@ -88,15 +91,21 @@ class RunStore:
         request: UserRequest,
         runs_root: str | Path = "runs",
         clock: Callable[[], datetime] = _utc_now,
+        secrets: tuple[str, ...] | list[str] = (),
     ) -> RunStore:
-        """Create runs/<session-id>/ and the initial state documents."""
+        """Create runs/<session-id>/ and the initial state documents.
+
+        ``secrets`` are scrubbed from every stored summary, message, and
+        data payload; raw output stays in artifacts/ so it remains
+        retrievable by its path + sha256 evidence reference (issue #41).
+        """
         now = clock()
         session_id = new_session_id(now)
         root = Path(runs_root)
         run_dir = root / session_id
         run_dir.mkdir(parents=True)
         (root / ".gitignore").write_text(_RUNS_GITIGNORE)
-        store = cls(run_dir, session_id, clock)
+        store = cls(run_dir, session_id, clock, secrets=secrets)
         store.write_document("request.json", request.to_dict())
         store._write_session(status=SessionStatus.IN_PROGRESS, stop_reason="")
         store.append_event(
@@ -153,8 +162,8 @@ class RunStore:
             "timestamp": self._clock().isoformat(),
             "kind": kind,
             "state": state,
-            "message": _summarize(message),
-            "data": data or {},
+            "message": _summarize(self._redactor.text(message)),
+            "data": self._redactor.details(data or {}),
             "tool_call_id": tool_call_id,
         }
         _append_line(self.paths.stream("events.jsonl"), record)
@@ -196,11 +205,11 @@ class RunStore:
             id=tool_id,
             seq=self._tool_seq,
             name=name,
-            args_summary=_summarize(args_summary),
+            args_summary=_summarize(self._redactor.text(args_summary)),
             status=status,
             started_at=started_at,
             duration_ms=duration_ms,
-            summary=_summarize(summary),
+            summary=_summarize(self._redactor.text(summary)),
             truncated=truncated,
             artifact=artifact,
         )
