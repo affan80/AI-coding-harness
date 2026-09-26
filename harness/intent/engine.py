@@ -16,7 +16,7 @@ from collections.abc import Callable
 from typing import Any
 
 from harness.core.errors import SerializationError
-from harness.core.models import UserRequest
+from harness.core.models import EvidenceRef, UserRequest
 from harness.intent.schemas import (
     Constraint,
     Goal,
@@ -128,6 +128,7 @@ class IntentEngine:
         messages = self._initial_messages(request)
         attempts = self._max_retries + 1
         last_problems: list[str] = []
+        attempts_evidence: list[EvidenceRef] = []
 
         for attempt in range(attempts):
             response = await self._client.generate(
@@ -144,6 +145,19 @@ class IntentEngine:
                     last_problems = list(exc.details.get("problems", [])) or [
                         exc.message
                     ]
+            attempts_evidence.append(
+                EvidenceRef(
+                    kind="model_response",
+                    description=(
+                        f"intent attempt {attempt + 1} rejected by schema "
+                        f"validation: {'; '.join(last_problems)}"
+                    ),
+                    metadata={
+                        "attempt": attempt + 1,
+                        "problems": list(last_problems),
+                    },
+                )
+            )
             if attempt >= attempts - 1 or not self._spend_retry():
                 break
             messages = [
@@ -160,7 +174,13 @@ class IntentEngine:
         raise IntentError(
             "intent extraction returned malformed output after "
             f"{attempts} attempt(s)",
-            details={"validation_problems": last_problems},
+            details={
+                "validation_problems": last_problems,
+                # Structured failure WITH evidence (issue #35): every rejected
+                # attempt is referenceable, so planning never sees it.
+                "evidence": [ref.to_dict() for ref in attempts_evidence],
+                "reached_planning": False,
+            },
         )
 
     # -- internals -------------------------------------------------------------
