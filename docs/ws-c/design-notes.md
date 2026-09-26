@@ -9,9 +9,14 @@ Owner: Person C · Contract file: `harness/contracts/verification.py`
 |---|---|---|---|
 | #11 executor loop + patch engine | #51–#53 | **merged** (closed) | `harness/execution/executor.py`, `harness/tools/files.py`; mutation evidence with patch id / old+new hashes / changed lines; git diff inspected after every mutation |
 | #12 shell, git checkpoints, rollback | #54–#56 | **merged** (closed) | `harness/execution/runner.py`, `executor._checkpoint_before`, `rollback_checkpoint` |
-| #14 verification ladder + reports | #60–#62 | **implemented, merged via PR #105**; sub-issues open pending close | `harness/verification/`; 20 tests; evidence comments on #60–#62 |
-| #15 failure classification, recovery, loops | #63–#65 | **implemented** on `feat/recovery-loop-detection` | `harness/recovery/`; 29 tests; evidence comments on #63–#65 |
-| #16 evidence-gated audit (shared with A) | #66–#68 | **implemented** on `feat/evidence-gated-audit` | `harness/audit/`; 22 tests; evidence comments on #66–#68 |
+| #14 verification ladder + reports | #60–#62 | **merged** via PR #105 (+ team evolution); #62 closed, #60/#61 open pending close | `harness/verification/`; 20 tests; evidence comment on #60 |
+| #15 failure classification, recovery, loops | #63–#65 | **merged** via PR #125; #63/#64 closed, #65 open | `harness/recovery/`; evidence comments on #63–#65 |
+| #16 evidence-gated audit (shared with A) | #66–#68 | **merged** via PR #125; #68 closed, #66/#67 open | `harness/audit/`; evidence comments on #66–#68 |
+
+Note: PR #125 delivered an independent implementation of the #15/#16 surfaces
+on upstream `main`; that implementation is canonical. The earlier
+`feat/recovery-loop-detection` / `feat/evidence-gated-audit` branches remain as
+design reference and closing evidence for the still-open sub-issues.
 
 ## Design decisions
 
