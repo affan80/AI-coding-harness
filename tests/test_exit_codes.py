@@ -55,7 +55,7 @@ def test_scripted_session_against_local_repository(tmp_path: Path) -> None:
     session = json.loads((run_dir / "session.json").read_text())
     assert session["status"] == "partial"
     profile = json.loads((run_dir / "repository.json").read_text())
-    assert profile["total_files"] == 2
+    assert profile["summary"]["total_files"] == 2
     assert (run_dir / "events.jsonl").exists()
     assert json.loads((run_dir / "verification.json").read_text())["status"] == "not_run"
 
