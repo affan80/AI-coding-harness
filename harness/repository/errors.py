@@ -32,4 +32,4 @@ class RepositoryProfileError(RepositoryError):
     def __init__(self, reason: str, path: str = "") -> None:
         self.reason = reason
         self.path = path
-        super().__init__(f"{reason}: {path}" if path else reason)
+        super().__init__("repository_profile_error", f"{reason}: {path}" if path else reason)

@@ -27,7 +27,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install python test deps
-        run: python -m pip install pytest ruff
+        run: python -m pip install pytest
 
       - name: Setup Node
         uses: actions/setup-node@v4
