@@ -9,6 +9,7 @@ referenced by path and sha256 instead of being copied into records.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Callable
@@ -17,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from harness.core.models import SessionStatus, UserRequest, new_session_id
+from harness.telemetry.models import ArtifactRef, ToolCallRecord
 
 # JSON document files written as whole atomic units. JSONL streams
 # (events.jsonl, tool-calls.jsonl) and patches.diff are appended instead.
@@ -31,6 +33,12 @@ _DOCUMENT_NAMES = (
     "verification.json",
     "metrics.json",
 )
+
+# Raw tool output at or below this size stays inline in the tool record;
+# anything larger becomes an artifacts/ file referenced by path and hash.
+ARTIFACT_INLINE_LIMIT = 4096
+
+_TOOL_STATUSES = ("ok", "error", "denied", "timeout")
 
 _RUNS_GITIGNORE = "*\n!.gitignore\n"
 
@@ -67,6 +75,7 @@ class RunStore:
         self.session_id = session_id
         self._clock = clock
         self._event_seq = 0
+        self._tool_seq = 0
 
     # -- construction ----------------------------------------------------
 
@@ -147,6 +156,79 @@ class RunStore:
         }
         _append_line(self.paths.stream("events.jsonl"), record)
         return record
+
+    # -- tool calls and artifacts -------------------------------------------
+
+    def record_tool_call(
+        self,
+        name: str,
+        args_summary: str,
+        status: str,
+        started_at: str,
+        duration_ms: int,
+        summary: str | None = None,
+        output: str | None = None,
+    ) -> ToolCallRecord:
+        """Persist one tool call; route large output to artifacts/.
+
+        The record and its event never embed raw output larger than
+        ``ARTIFACT_INLINE_LIMIT``; oversized output is stored under
+        ``artifacts/`` and referenced by path and sha256.
+        """
+        if status not in _TOOL_STATUSES:
+            raise ValueError(
+                f"invalid tool status {status!r}: expected one of {', '.join(_TOOL_STATUSES)}"
+            )
+        self._tool_seq += 1
+        tool_id = f"tool-{self._tool_seq:04d}"
+        artifact: ArtifactRef | None = None
+        truncated = False
+        if output is not None and len(output.encode("utf-8")) > ARTIFACT_INLINE_LIMIT:
+            artifact = self._store_artifact(tool_id, output)
+            truncated = True
+        if summary is None:
+            summary = output if output is not None else ""
+
+        record = ToolCallRecord(
+            id=tool_id,
+            seq=self._tool_seq,
+            name=name,
+            args_summary=_summarize(args_summary),
+            status=status,
+            started_at=started_at,
+            duration_ms=duration_ms,
+            summary=_summarize(summary),
+            truncated=truncated,
+            artifact=artifact,
+        )
+        _append_line(
+            self.paths.stream("tool-calls.jsonl"),
+            record.to_dict(),
+        )
+        self.append_event(
+            "tool",
+            record.summary or f"{name} {status}",
+            data={
+                "tool": name,
+                "status": status,
+                "duration_ms": duration_ms,
+                "artifact": artifact.path if artifact else None,
+                "truncated": truncated,
+            },
+            tool_call_id=tool_id,
+        )
+        return record
+
+    def _store_artifact(self, tool_id: str, output: str) -> ArtifactRef:
+        self.paths.artifacts_dir.mkdir(exist_ok=True)
+        artifact_path = self.paths.artifacts_dir / f"{tool_id}-output.txt"
+        content = output.encode("utf-8")
+        artifact_path.write_bytes(content)
+        return ArtifactRef(
+            path=str(artifact_path.relative_to(self.run_dir)),
+            sha256=hashlib.sha256(content).hexdigest(),
+            size=len(content),
+        )
 
 
 def _atomic_write(path: Path, content: bytes) -> None:
