@@ -30,7 +30,7 @@ SCHEMA_VERSION = 1
 
 
 # ---------------------------------------------------------------------------
-# Status types
+# Orchestration status types
 # ---------------------------------------------------------------------------
 
 
@@ -107,8 +107,45 @@ class TerminalReason(StrEnum):
 
 
 # ---------------------------------------------------------------------------
-# Domain models
+# Request policy types (product surface: CLI flags and exit codes)
 # ---------------------------------------------------------------------------
+
+
+class WritePolicy(StrEnum):
+    """Where the harness may write in the target repository."""
+
+    SCOPED = "scoped"  # writes restricted to scope_paths
+    ALL = "all"
+
+
+class VerificationDepth(StrEnum):
+    """How much of the verification ladder to run."""
+
+    SYNTAX = "syntax"
+    TARGETED = "targeted"
+    FULL = "full"
+
+
+class CheckpointPolicy(StrEnum):
+    WHEN = "when"  # checkpoint before risky edits
+    ALWAYS = "always"
+    NEVER = "never"
+
+
+class SessionStatus(StrEnum):
+    """Terminal and in-flight session outcomes reported by the CLI."""
+
+    IN_PROGRESS = "in_progress"
+    VERIFIED = "verified"
+    PARTIAL = "partial"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+def new_session_id(now: datetime | None = None) -> str:
+    """Sortable session id: s-<UTC timestamp>-<random suffix>."""
+    stamp = (now or datetime.now(UTC)).strftime("%Y%m%d-%H%M%S")
+    return f"s-{stamp}-{uuid.uuid4().hex[:8]}"
 
 
 def _new_id() -> str:
@@ -119,9 +156,107 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+# ---------------------------------------------------------------------------
+# Budget models (defined first: UserRequest carries a Budget default)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Budget:
+    """Configurable session constraints (PRD §20, FR-14).
+
+    ``command_timeout_seconds`` is a limit value enforced by the tool layer
+    when it runs commands; the other four fields are counters enforced by
+    the orchestrator.
+    """
+
+    max_model_calls: int = 20
+    max_iterations: int = 30
+    max_retries_per_goal: int = 3
+    max_audit_rounds: int = 2
+    command_timeout_seconds: float = 120.0
+
+    def __post_init__(self) -> None:
+        counters = ("max_model_calls", "max_iterations", "max_retries_per_goal", "max_audit_rounds")
+        for name in counters:
+            if getattr(self, name) < 0:
+                raise ValueError(f"Budget.{name} must be >= 0, got {getattr(self, name)}")
+        if self.command_timeout_seconds <= 0:
+            raise ValueError(
+                f"Budget.command_timeout_seconds must be > 0, got {self.command_timeout_seconds}"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "max_model_calls": self.max_model_calls,
+            "max_iterations": self.max_iterations,
+            "max_retries_per_goal": self.max_retries_per_goal,
+            "max_audit_rounds": self.max_audit_rounds,
+            "command_timeout_seconds": self.command_timeout_seconds,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Budget:
+        try:
+            return cls(
+                max_model_calls=data.get("max_model_calls", 20),
+                max_iterations=data.get("max_iterations", 30),
+                max_retries_per_goal=data.get("max_retries_per_goal", 3),
+                max_audit_rounds=data.get("max_audit_rounds", 2),
+                command_timeout_seconds=data.get("command_timeout_seconds", 120.0),
+            )
+        except ValueError as exc:
+            raise SerializationError(str(exc), details={"field": "budget"}) from exc
+
+
+@dataclass(frozen=True)
+class BudgetUsage:
+    """Counters consumed against a :class:`Budget` so far.
+
+    ``retries_by_goal`` maps goal id to retry count; it is treated as
+    immutable — the orchestrator always builds a new mapping instead of
+    mutating one.
+    """
+
+    model_calls: int = 0
+    iterations: int = 0
+    audit_rounds: int = 0
+    retries_by_goal: Mapping[str, int] = field(default_factory=dict)
+
+    def retries_for(self, goal_id: str) -> int:
+        return self.retries_by_goal.get(goal_id, 0)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "model_calls": self.model_calls,
+            "iterations": self.iterations,
+            "audit_rounds": self.audit_rounds,
+            "retries_by_goal": dict(self.retries_by_goal),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> BudgetUsage:
+        return cls(
+            model_calls=data.get("model_calls", 0),
+            iterations=data.get("iterations", 0),
+            audit_rounds=data.get("audit_rounds", 0),
+            retries_by_goal=dict(data.get("retries_by_goal", {})),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Request and domain models
+# ---------------------------------------------------------------------------
+
+
 @dataclass(frozen=True)
 class UserRequest:
-    """What the user asked the harness to do (PRD FR-01..FR-03)."""
+    """Everything the user asked the harness to do, in one typed value.
+
+    Both interactive and scripted invocations produce this exact shape. The
+    first five fields are the core session contract; the policy fields below
+    them carry the CLI's execution preferences.
+    """
 
     objective: str
     repository_path: str
@@ -130,6 +265,36 @@ class UserRequest:
     """Free-form restrictions the user placed on the work."""
     scope_paths: tuple[str, ...] = ()
     """Paths the user approved for modification; empty means the whole repo."""
+    write_policy: WritePolicy = WritePolicy.SCOPED
+    verification_depth: VerificationDepth = VerificationDepth.TARGETED
+    audit_enabled: bool = True
+    checkpoint_policy: CheckpointPolicy = CheckpointPolicy.WHEN
+    budget: Budget = field(default_factory=Budget)
+
+    def validate(self) -> None:
+        """Raise ValueError with an actionable message on invalid input."""
+        if not self.repository_path or not self.repository_path.strip():
+            raise ValueError("repository path must not be empty")
+        if not self.objective or not self.objective.strip():
+            raise ValueError("objective must not be empty; describe what to do")
+        for scope in self.scope_paths:
+            if scope.startswith("/") or ".." in scope.split("/"):
+                raise ValueError(
+                    f"invalid allowed scope {scope!r}: use relative paths inside the repository"
+                )
+        b = self.budget
+        for name in ("max_model_calls", "max_iterations", "max_retries_per_goal"):
+            if getattr(b, name) < 1:
+                raise ValueError(f"budget.{name} must be at least 1 (got {getattr(b, name)})")
+        if b.max_audit_rounds < 0:
+            raise ValueError(
+                f"budget.max_audit_rounds must be at least 0 (got {b.max_audit_rounds})"
+            )
+        if b.command_timeout_seconds < 1:
+            raise ValueError(
+                f"budget.command_timeout_seconds must be at least 1 "
+                f"(got {b.command_timeout_seconds})"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -138,6 +303,11 @@ class UserRequest:
             "repository_path": self.repository_path,
             "constraints": list(self.constraints),
             "scope_paths": list(self.scope_paths),
+            "write_policy": self.write_policy.value,
+            "verification_depth": self.verification_depth.value,
+            "audit_enabled": self.audit_enabled,
+            "checkpoint_policy": self.checkpoint_policy.value,
+            "budget": self.budget.to_dict(),
         }
 
     @classmethod
@@ -148,6 +318,21 @@ class UserRequest:
             repository_path=_require(data, "repository_path", "UserRequest"),
             constraints=tuple(data.get("constraints", ())),
             scope_paths=tuple(data.get("scope_paths", ())),
+            write_policy=_enum_from_dict(
+                WritePolicy, "write_policy", data.get("write_policy", WritePolicy.SCOPED.value)
+            ),
+            verification_depth=_enum_from_dict(
+                VerificationDepth,
+                "verification_depth",
+                data.get("verification_depth", VerificationDepth.TARGETED.value),
+            ),
+            audit_enabled=data.get("audit_enabled", True),
+            checkpoint_policy=_enum_from_dict(
+                CheckpointPolicy,
+                "checkpoint_policy",
+                data.get("checkpoint_policy", CheckpointPolicy.WHEN.value),
+            ),
+            budget=Budget.from_dict(data.get("budget", {})),
         )
 
 
@@ -257,89 +442,6 @@ class PlanStep:
             status=_enum_from_dict(
                 StepStatus, "status", data.get("status", StepStatus.PENDING.value)
             ),
-        )
-
-
-@dataclass(frozen=True)
-class Budget:
-    """Configurable session constraints (PRD §20, FR-14).
-
-    ``command_timeout_seconds`` is a limit value enforced by the tool layer
-    when it runs commands; the other four fields are counters enforced by
-    the orchestrator.
-    """
-
-    max_model_calls: int = 20
-    max_iterations: int = 30
-    max_retries_per_goal: int = 3
-    max_audit_rounds: int = 2
-    command_timeout_seconds: float = 120.0
-
-    def __post_init__(self) -> None:
-        counters = ("max_model_calls", "max_iterations", "max_retries_per_goal", "max_audit_rounds")
-        for name in counters:
-            if getattr(self, name) < 0:
-                raise ValueError(f"Budget.{name} must be >= 0, got {getattr(self, name)}")
-        if self.command_timeout_seconds <= 0:
-            raise ValueError(
-                f"Budget.command_timeout_seconds must be > 0, got {self.command_timeout_seconds}"
-            )
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "max_model_calls": self.max_model_calls,
-            "max_iterations": self.max_iterations,
-            "max_retries_per_goal": self.max_retries_per_goal,
-            "max_audit_rounds": self.max_audit_rounds,
-            "command_timeout_seconds": self.command_timeout_seconds,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> Budget:
-        try:
-            return cls(
-                max_model_calls=data.get("max_model_calls", 20),
-                max_iterations=data.get("max_iterations", 30),
-                max_retries_per_goal=data.get("max_retries_per_goal", 3),
-                max_audit_rounds=data.get("max_audit_rounds", 2),
-                command_timeout_seconds=data.get("command_timeout_seconds", 120.0),
-            )
-        except ValueError as exc:
-            raise SerializationError(str(exc), details={"field": "budget"}) from exc
-
-
-@dataclass(frozen=True)
-class BudgetUsage:
-    """Counters consumed against a :class:`Budget` so far.
-
-    ``retries_by_goal`` maps goal id to retry count; it is treated as
-    immutable — the orchestrator always builds a new mapping instead of
-    mutating one.
-    """
-
-    model_calls: int = 0
-    iterations: int = 0
-    audit_rounds: int = 0
-    retries_by_goal: Mapping[str, int] = field(default_factory=dict)
-
-    def retries_for(self, goal_id: str) -> int:
-        return self.retries_by_goal.get(goal_id, 0)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "model_calls": self.model_calls,
-            "iterations": self.iterations,
-            "audit_rounds": self.audit_rounds,
-            "retries_by_goal": dict(self.retries_by_goal),
-        }
-
-    @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> BudgetUsage:
-        return cls(
-            model_calls=data.get("model_calls", 0),
-            iterations=data.get("iterations", 0),
-            audit_rounds=data.get("audit_rounds", 0),
-            retries_by_goal=dict(data.get("retries_by_goal", {})),
         )
 
 

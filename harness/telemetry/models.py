@@ -3,33 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from enum import StrEnum
-
-from harness.core.models import TerminalOutcome
-
-
-class RunStatus(StrEnum):
-    """Status of a run directory (issue #29 exit-code contract).
-
-    Core's ``TerminalOutcome`` classifies finished orchestrator sessions;
-    ``PARTIAL`` additionally lets the evidence layer honestly report runs
-    that produced evidence without reaching verification.
-    """
-
-    IN_PROGRESS = "in_progress"
-    VERIFIED = "verified"
-    PARTIAL = "partial"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-    @classmethod
-    def from_terminal_outcome(cls, outcome: TerminalOutcome) -> RunStatus:
-        mapping = {
-            TerminalOutcome.COMPLETED: cls.VERIFIED,
-            TerminalOutcome.FAILED: cls.FAILED,
-            TerminalOutcome.CANCELLED: cls.CANCELLED,
-        }
-        return mapping[outcome]
 
 
 @dataclass(frozen=True)

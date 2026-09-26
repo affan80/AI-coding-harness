@@ -12,16 +12,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from harness.core.models import Budget, UserRequest
+from harness.core.models import SessionStatus, UserRequest
 from harness.repository import RepositoryProfile, profile_repository
 from harness.telemetry import RunStore
-from harness.telemetry.models import RunStatus
 from tui.render import Renderer, SessionResult
 
 
 def run_session(
     request: UserRequest,
-    budget: Budget | None = None,
     runs_root: str | Path = "runs",
     renderer: Renderer | None = None,
     profiler: Callable[[str], RepositoryProfile] | None = None,
@@ -32,28 +30,29 @@ def run_session(
     profiler = profiler or profile_repository
     store: RunStore | None = None
     try:
-        store = RunStore.start(request, budget, runs_root)
+        store = RunStore.start(request, runs_root)
         for state in ("INITIALIZE", "UNDERSTAND", "INSPECT_REPOSITORY"):
             renderer.show_state(state)
             store.append_event("state", state, state=state)
 
         profile = profiler(request.repository_path)
         store.write_document("repository.json", profile.to_dict())
+        summary = profile.summary
         renderer.show_info(
-            f"repository: {profile.total_files} files, {profile.total_bytes} bytes"
+            f"repository: {summary.total_files} files, {summary.total_bytes} bytes"
         )
         languages = ", ".join(
-            f"{lang.language} ({lang.files})" for lang in profile.languages[:5]
+            f"{lang.language} ({lang.file_count})" for lang in summary.languages[:5]
         )
         if languages:
             renderer.show_info(f"languages: {languages}")
         store.append_event(
             "info",
-            f"profiled {profile.total_files} files",
+            f"profiled {summary.total_files} files",
             data={
-                "total_files": profile.total_files,
-                "total_bytes": profile.total_bytes,
-                "fingerprint": profile.fingerprint,
+                "total_files": summary.total_files,
+                "total_bytes": summary.total_bytes,
+                "fingerprint": profile.fingerprint(),
             },
         )
 
@@ -64,7 +63,7 @@ def run_session(
         store.write_verification(
             {"status": "not_run", "checks": [], "notes": [stop_reason]}
         )
-        status = RunStatus.PARTIAL
+        status = SessionStatus.PARTIAL
         store.finalize(status, stop_reason=stop_reason)
         return SessionResult(
             status=status,
@@ -73,18 +72,18 @@ def run_session(
         )
     except KeyboardInterrupt:
         return _finalize_failure(
-            store, renderer, RunStatus.CANCELLED, "interrupted by user"
+            store, renderer, SessionStatus.CANCELLED, "interrupted by user"
         )
     except Exception as exc:  # noqa: BLE001 - surfaced as session failure evidence
         return _finalize_failure(
-            store, renderer, RunStatus.FAILED, f"{type(exc).__name__}: {exc}"
+            store, renderer, SessionStatus.FAILED, f"{type(exc).__name__}: {exc}"
         )
 
 
 def _finalize_failure(
     store: RunStore | None,
     renderer: Renderer,
-    status: RunStatus,
+    status: SessionStatus,
     reason: str,
 ) -> SessionResult:
     """Best-effort terminal state; never masks the original failure."""

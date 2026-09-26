@@ -12,21 +12,19 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from harness.core.models import Budget, UserRequest
-from harness.telemetry.models import ArtifactRef, RunStatus, ToolCallRecord
+from harness.core.models import SessionStatus, UserRequest, new_session_id
+from harness.telemetry.models import ArtifactRef, ToolCallRecord
 
 # JSON document files written as whole atomic units. JSONL streams
 # (events.jsonl, tool-calls.jsonl) and patches.diff are appended instead.
 _DOCUMENT_NAMES = (
     "session.json",
     "request.json",
-    "budget.json",
     "goals.json",
     "plan.json",
     "baseline.json",
@@ -35,6 +33,7 @@ _DOCUMENT_NAMES = (
     "verification.json",
     "recovery.json",
     "metrics.json",
+    "changed-files.json",
 )
 
 # Raw tool output at or below this size stays inline in the tool record;
@@ -48,12 +47,6 @@ _RUNS_GITIGNORE = "*\n!.gitignore\n"
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-def new_session_id(now: datetime | None = None) -> str:
-    """Sortable run-directory identifier: s-<UTC timestamp>-<random suffix>."""
-    stamp = (now or datetime.now(UTC)).strftime("%Y%m%d-%H%M%S")
-    return f"s-{stamp}-{uuid.uuid4().hex[:8]}"
 
 
 @dataclass
@@ -93,7 +86,6 @@ class RunStore:
     def start(
         cls,
         request: UserRequest,
-        budget: Budget | None = None,
         runs_root: str | Path = "runs",
         clock: Callable[[], datetime] = _utc_now,
     ) -> RunStore:
@@ -106,9 +98,7 @@ class RunStore:
         (root / ".gitignore").write_text(_RUNS_GITIGNORE)
         store = cls(run_dir, session_id, clock)
         store.write_document("request.json", request.to_dict())
-        if budget is not None:
-            store.write_document("budget.json", budget.to_dict())
-        store._write_session(status=RunStatus.IN_PROGRESS, stop_reason="")
+        store._write_session(status=SessionStatus.IN_PROGRESS, stop_reason="")
         store.append_event(
             "info",
             "session started",
@@ -125,12 +115,12 @@ class RunStore:
         serialized = json.dumps(payload, indent=2, sort_keys=True) + "\n"
         _atomic_write(self.paths.document(name), serialized.encode("utf-8"))
 
-    def finalize(self, status: RunStatus, stop_reason: str = "") -> None:
+    def finalize(self, status: SessionStatus, stop_reason: str = "") -> None:
         """Record the terminal session status and timestamp."""
         self._write_session(status=status, stop_reason=stop_reason)
         self.append_event("state", f"session {status.value}", data={"stop_reason": stop_reason})
 
-    def _write_session(self, status: RunStatus, stop_reason: str) -> None:
+    def _write_session(self, status: SessionStatus, stop_reason: str) -> None:
         now = self._clock().isoformat()
         existing: dict = {}
         session_path = self.paths.document("session.json")
@@ -270,6 +260,18 @@ class RunStore:
         """
         self.write_document("verification.json", report)
 
+    def record_changed_files(self, files: list[str]) -> None:
+        """Persist changed-files.json: every path the session modified.
+
+        Written together with patches.diff and verification.json so a
+        reviewer can reconstruct what changed and how it was checked from
+        the run directory alone (issue #26).
+        """
+        self.write_document(
+            "changed-files.json",
+            {"count": len(files), "files": sorted(files)},
+        )
+
 
 def _atomic_write(path: Path, content: bytes) -> None:
     tmp = path.with_name(path.name + ".tmp")
@@ -295,3 +297,45 @@ def _summarize(text: str, limit: int = 400) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + f"... [{len(text)} chars total]"
+
+
+def reconstruct_run(run_dir: Path) -> dict:
+    """Reconstruct changed files and check outcomes from a run directory (#26).
+
+    Reads ``changed-files.json``, ``verification.json``, ``patches.diff``, and
+    ``session.json`` — nothing else — which is exactly what a reviewer gets
+    after any terminal outcome (verified, partial, or failed). Missing
+    documents degrade to empty values instead of failing the reconstruction.
+    """
+    run_dir = Path(run_dir)
+
+    def _load(name: str) -> dict:
+        path = run_dir / name
+        if not path.is_file():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+
+    session = _load("session.json")
+    verification = _load("verification.json")
+    changed = _load("changed-files.json")
+
+    patch_labels: list[str] = []
+    diff_path = run_dir / "patches.diff"
+    if diff_path.is_file():
+        for line in diff_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("--- patch:") and line.endswith(" ---"):
+                patch_labels.append(line[len("--- patch:") : -len(" ---")].strip())
+
+    return {
+        "session_id": session.get("session_id", ""),
+        "status": session.get("status", ""),
+        "stop_reason": session.get("stop_reason", ""),
+        "changed_files": sorted(changed.get("files", [])),
+        "patch_count": len(patch_labels),
+        "patch_labels": patch_labels,
+        "checks": verification.get("checks", []),
+        "verification_status": verification.get("status", "not_run"),
+    }

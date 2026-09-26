@@ -18,9 +18,9 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from harness.adapters.base import Command, ProjectAdapter, select_adapter
 from harness.execution.runner import CommandResult, run_command
 from harness.telemetry.store import RunStore
+from harness.verification.adapters import Command, ProjectAdapter, select_adapter
 from harness.verification.models import (
     LADDER_ORDER,
     TEST_BEARING_STAGES,

@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   package:
@@ -43,4 +43,18 @@ jobs:
         with:
           name: ai-coding-harness-${{ github.ref_name }}
           path: dist/
+
+      # Issue #80 (M5.12): publish the tagged source archive, checksum, and
+      # release notes. The Verify step above already ran the full CI checks on
+      # this exact tag commit, so releases only ever come from passing commits.
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "ai-coding-harness $GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag \
+            dist/ai-coding-harness-${GITHUB_REF_NAME}.tar.gz \
+            dist/ai-coding-harness-${GITHUB_REF_NAME}.tar.gz.sha256
 

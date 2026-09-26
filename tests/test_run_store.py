@@ -8,8 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from harness.core.models import UserRequest
-from harness.telemetry import RunStatus
+from harness.core.models import SessionStatus, UserRequest
 from harness.telemetry.store import RunStore
 
 
@@ -38,8 +37,7 @@ def test_start_creates_run_directory_with_state_files(tmp_path: Path) -> None:
     request = json.loads((store.run_dir / "request.json").read_text())
     assert request["repository_path"] == "/tmp/sample"
     assert request["objective"] == "Fix the login bug"
-    assert request["scope_paths"] == []
-    assert request["request_id"]
+    assert request["write_policy"] == "scoped"
 
     session = json.loads((store.run_dir / "session.json").read_text())
     assert session["status"] == "in_progress"
@@ -111,7 +109,7 @@ def test_interrupted_write_leaves_previous_state_valid(
 def test_finalize_records_terminal_status(tmp_path: Path) -> None:
     store = RunStore.start(_request(), runs_root=tmp_path, clock=_fixed_clock())
 
-    store.finalize(RunStatus.FAILED, stop_reason="verification failed")
+    store.finalize(SessionStatus.FAILED, stop_reason="verification failed")
 
     session = json.loads((store.run_dir / "session.json").read_text())
     assert session["status"] == "failed"

@@ -1,17 +1,23 @@
-"""Project adapters for verification command selection."""
+"""Project adapters: discover, never invent, project commands (PRD §19; issue #13)."""
 
 from harness.adapters.base import (
-    Command,
-    NodeAdapter,
+    AdapterCommand,
+    CommandKind,
+    DetectionResult,
+    EnvironmentStatus,
     ProjectAdapter,
-    PythonAdapter,
-    select_adapter,
 )
+from harness.adapters.detect import detect_adapter
+from harness.adapters.node_adapter import NodeAdapter
+from harness.adapters.python_adapter import PythonAdapter
 
 __all__ = [
-    "Command",
+    "AdapterCommand",
+    "CommandKind",
+    "DetectionResult",
+    "EnvironmentStatus",
     "NodeAdapter",
     "ProjectAdapter",
     "PythonAdapter",
-    "select_adapter",
+    "detect_adapter",
 ]

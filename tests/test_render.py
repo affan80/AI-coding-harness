@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import io
 
-from harness.telemetry.models import ArtifactRef, RunStatus, ToolCallRecord
+from harness.core.models import SessionStatus
+from harness.telemetry import ArtifactRef, ToolCallRecord
 from tui.render import LINE_WIDTH, Renderer, SessionResult
 
 
@@ -88,7 +89,7 @@ def test_state_transitions_render_without_reasoning() -> None:
 def test_final_summary_is_parseable_and_honest() -> None:
     renderer, buffer = _render()
     result = SessionResult(
-        status=RunStatus.PARTIAL,
+        status=SessionStatus.PARTIAL,
         files_changed=["app/auth.py"],
         checks=["target-tests: 2 passed"],
         limitations=["full-suite regression pending replan"],
@@ -113,7 +114,7 @@ def test_final_summary_includes_goals_when_known() -> None:
     renderer, buffer = _render()
 
     renderer.show_final(
-        SessionResult(status=RunStatus.VERIFIED, goals_completed=6, goals_total=6)
+        SessionResult(status=SessionStatus.VERIFIED, goals_completed=6, goals_total=6)
     )
 
     assert "Goals: 6/6" in buffer.getvalue()
