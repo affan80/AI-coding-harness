@@ -79,11 +79,12 @@ class TestContextManager(unittest.TestCase):
 
         self.assertEqual(self.manager.metrics.total_tokens, 110)
 
-        # After compaction, we should have the new target (P2) and 7 background
-        # files (P7) to equal 80 tokens max
+        # Safe budget now reserves output headroom: (100 - 50) * 0.8 = 40.
+        # The P2 target is non-evictable; P7 background files fill the rest.
         compacted = self.manager.compact()
-        self.assertEqual(len(compacted), 8)
+        self.assertEqual(len(compacted), 4)
         self.assertEqual(compacted[0].id, "new_target")
+        assert self.manager.metrics.total_tokens <= self.manager.budget()
         self.assertTrue(
             all(c.priority in (Priority.P2_TARGET, Priority.P7_BACKGROUND) for c in compacted)
         )
