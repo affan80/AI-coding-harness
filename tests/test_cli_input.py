@@ -28,9 +28,9 @@ def test_full_flag_set_produces_typed_request(tmp_path) -> None:
 
     request = collect_request(args, input_fn=lambda _prompt: "", interactive=False)
 
-    assert request.repository == str(tmp_path)
+    assert request.repository_path == str(tmp_path)
     assert request.objective == "Fix the login bug"
-    assert request.allowed_scope == ("backend/auth", "tests")
+    assert request.scope_paths == ("backend/auth", "tests")
     assert request.write_policy.value == "all"
     assert request.verification_depth.value == "full"
     assert request.audit_enabled is False
@@ -49,7 +49,7 @@ def test_defaults_apply_for_minimal_invocation(tmp_path) -> None:
 
     assert request.budget.max_model_calls == 20
     assert request.budget.command_timeout_seconds == 120
-    assert request.allowed_scope == ()
+    assert request.scope_paths == ()
     assert request.audit_enabled is True
 
 
@@ -66,7 +66,7 @@ def test_interactive_prompts_collect_missing_input(tmp_path) -> None:
     request = collect_request(args, input_fn=fake_input, interactive=True)
 
     assert len(prompts) == 2
-    assert request.repository == str(tmp_path)
+    assert request.repository_path == str(tmp_path)
     assert request.objective == "Audit the auth module"
 
 

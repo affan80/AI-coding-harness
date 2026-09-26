@@ -180,7 +180,7 @@ def test_runner_itself_finalizes_cancelled_on_interrupt(tmp_path: Path) -> None:
             raise KeyboardInterrupt
 
     result = run_session(
-        UserRequest(repository=str(tmp_path), objective="obj"),
+        UserRequest(repository_path=str(tmp_path), objective="obj"),
         runs_root=runs_dir,
         profiler=InterruptingProfiler(),
     )

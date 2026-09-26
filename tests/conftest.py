@@ -1,8 +1,9 @@
-"""Shared fixtures for building synthetic repository trees."""
+"""Shared fixtures: synthetic repository trees and a deterministic clock."""
 
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,24 @@ def make_file(root: Path, rel: str, content: str = "x\n") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
     return path
+
+
+class FakeClock:
+    """Deterministic clock: each call advances by ``step``."""
+
+    def __init__(self, start: datetime | None = None, step: timedelta = timedelta(seconds=1)):
+        self._current = start or datetime(2026, 1, 1, tzinfo=UTC)
+        self._step = step
+
+    def __call__(self) -> datetime:
+        current = self._current
+        self._current += self._step
+        return current
+
+
+@pytest.fixture
+def fake_clock() -> FakeClock:
+    return FakeClock()
 
 
 @pytest.fixture

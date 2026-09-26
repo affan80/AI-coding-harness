@@ -14,7 +14,7 @@ from harness.telemetry import ARTIFACT_INLINE_LIMIT, RunStore
 
 def _store(tmp_path: Path) -> RunStore:
     return RunStore.start(
-        UserRequest(repository="/tmp/sample", objective="objective"),
+        UserRequest(repository_path="/tmp/sample", objective="objective"),
         runs_root=tmp_path / "runs",
     )
 

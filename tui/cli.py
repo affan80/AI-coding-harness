@@ -114,28 +114,41 @@ def collect_request(
     def _limit(value: int | None, fallback: int) -> int:
         return fallback if value is None else value
 
-    budget = Budget(
-        max_model_calls=_limit(args.max_model_calls, defaults.max_model_calls),
-        max_iterations=_limit(args.max_iterations, defaults.max_iterations),
-        max_retries_per_goal=_limit(
-            args.max_retries_per_goal, defaults.max_retries_per_goal
-        ),
-        max_audit_rounds=_limit(args.max_audit_rounds, defaults.max_audit_rounds),
-        command_timeout_seconds=_limit(
-            args.timeout, defaults.command_timeout_seconds
-        ),
-    )
-    request = UserRequest(
-        repository=repository,
-        objective=objective,
-        allowed_scope=tuple(args.scope),
-        write_policy=WritePolicy(args.write_policy),
-        verification_depth=VerificationDepth(args.verification_depth),
-        audit_enabled=not args.no_audit,
-        checkpoint_policy=CheckpointPolicy(args.checkpoint),
-        budget=budget,
-    )
+    # Budget(0, ...) is a valid "exhaust immediately" model, so the CLI-level
+    # minimum of 1 is checked here before construction, not on Budget itself.
+    for attr in ("max_model_calls", "max_iterations", "max_retries_per_goal"):
+        value = getattr(args, attr)
+        if value is not None and value < 1:
+            raise CliError(f"budget.{attr} must be at least 1 (got {value})")
+    if args.max_audit_rounds is not None and args.max_audit_rounds < 0:
+        raise CliError(
+            f"budget.max_audit_rounds must be at least 0 (got {args.max_audit_rounds})"
+        )
+    if args.timeout is not None and args.timeout < 1:
+        raise CliError(f"budget.command_timeout_seconds must be at least 1 (got {args.timeout})")
+
     try:
+        budget = Budget(
+            max_model_calls=_limit(args.max_model_calls, defaults.max_model_calls),
+            max_iterations=_limit(args.max_iterations, defaults.max_iterations),
+            max_retries_per_goal=_limit(
+                args.max_retries_per_goal, defaults.max_retries_per_goal
+            ),
+            max_audit_rounds=_limit(args.max_audit_rounds, defaults.max_audit_rounds),
+            command_timeout_seconds=_limit(
+                args.timeout, defaults.command_timeout_seconds
+            ),
+        )
+        request = UserRequest(
+            repository_path=repository,
+            objective=objective,
+            scope_paths=tuple(args.scope),
+            write_policy=WritePolicy(args.write_policy),
+            verification_depth=VerificationDepth(args.verification_depth),
+            audit_enabled=not args.no_audit,
+            checkpoint_policy=CheckpointPolicy(args.checkpoint),
+            budget=budget,
+        )
         request.validate()
     except ValueError as exc:
         raise CliError(str(exc)) from exc

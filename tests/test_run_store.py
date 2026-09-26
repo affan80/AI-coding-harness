@@ -13,7 +13,7 @@ from harness.telemetry.store import RunStore
 
 
 def _request(**overrides) -> UserRequest:
-    defaults = {"repository": "/tmp/sample", "objective": "Fix the login bug"}
+    defaults = {"repository_path": "/tmp/sample", "objective": "Fix the login bug"}
     defaults.update(overrides)
     return UserRequest(**defaults)
 
@@ -35,7 +35,7 @@ def test_start_creates_run_directory_with_state_files(tmp_path: Path) -> None:
     assert store.run_dir.is_dir()
     assert store.run_dir.parent == tmp_path / "runs"
     request = json.loads((store.run_dir / "request.json").read_text())
-    assert request["repository"] == "/tmp/sample"
+    assert request["repository_path"] == "/tmp/sample"
     assert request["objective"] == "Fix the login bug"
     assert request["write_policy"] == "scoped"
 

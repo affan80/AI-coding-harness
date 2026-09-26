@@ -100,7 +100,7 @@ class RunStore:
         store.append_event(
             "info",
             "session started",
-            data={"repository": request.repository},
+            data={"repository": request.repository_path},
         )
         return store
 

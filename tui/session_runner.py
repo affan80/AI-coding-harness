@@ -35,7 +35,7 @@ def run_session(
             renderer.show_state(state)
             store.append_event("state", state, state=state)
 
-        profile = profiler(request.repository)
+        profile = profiler(request.repository_path)
         store.write_document("repository.json", profile.to_dict())
         renderer.show_info(
             f"repository: {profile.total_files} files, {profile.total_bytes} bytes"

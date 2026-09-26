@@ -20,7 +20,7 @@ _AUTH_DIFF = """diff --git a/app/auth.py b/app/auth.py
 
 def _store(tmp_path: Path) -> RunStore:
     return RunStore.start(
-        UserRequest(repository="/tmp/sample", objective="Fix login"),
+        UserRequest(repository_path="/tmp/sample", objective="Fix login"),
         runs_root=tmp_path / "runs",
     )
 
