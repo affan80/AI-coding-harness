@@ -7,6 +7,12 @@ requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = []
 
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.4",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
