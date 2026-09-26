@@ -1,8 +1,6 @@
 """Issues #72/#74: MCP gateway — permissioned typed tools, provenance, fallback."""
 
 import pytest
-from harness.tools.registry import ToolRegistry, ToolSpec
-from harness.tools.result import ToolResult
 
 from harness.mcp.gateway import (
     McpGateway,
@@ -10,6 +8,8 @@ from harness.mcp.gateway import (
     McpResult,
     McpUnavailableError,
 )
+from harness.tools.registry import ToolRegistry, ToolSpec
+from harness.tools.result import ToolResult
 
 
 class FakeServer:
@@ -110,7 +110,8 @@ def test_unavailable_server_degrades_without_breaking_local_tools(gateway):
         )
     )
     local = registry.call("executor", "local_read", path="app.py")
-    assert local.ok and local.summary == "read app.py"
+    # The registry resolves relative paths against the repo root (#92).
+    assert local.ok and "app.py" in local.summary
 
 
 def test_registry_integration_exposes_read_only_ops_as_typed_tools(gateway):

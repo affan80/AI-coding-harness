@@ -2,6 +2,7 @@
 
 import pytest
 
+from harness.mcp.gateway import McpGateway
 from harness.mcp.github import (
     GitHubMcpServer,
     parse_github_ref,
@@ -114,7 +115,10 @@ def test_token_never_appears_in_results_or_errors(server, monkeypatch):
         raise McpUnavailableError("GitHub rejected the request (credentials)")
 
     monkeypatch.setattr(server, "_request", reject)
-    result = server.invoke("fetch_issue", {"reference": "acme/web#123"})
+    # The server contract raises McpUnavailableError on transport failure;
+    # the gateway is the boundary that normalizes it into a safe result.
+    gateway = McpGateway(servers=[server])
+    result = gateway.invoke("executor", "github", "fetch_issue", {"reference": "acme/web#123"})
     assert not result.ok
     assert "ghp_test_token" not in result.summary
     assert "ghp_test_token" not in str(result.to_dict())
