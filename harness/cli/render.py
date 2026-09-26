@@ -49,14 +49,19 @@ def _tool_line(event: Mapping[str, Any]) -> str:
 
 
 def render_lines(
-    events: Iterable[Mapping[str, Any]],
+    events: Iterable[Mapping[str, Any] | Any],
     *,
     current_state: str | None = None,
 ) -> list[str]:
-    """Render the execution view: state transitions + concise tool events."""
+    """Render the execution view: state transitions + concise tool events.
+
+    Accepts plain JSONL dicts and any event object exposing ``to_dict``.
+    """
     lines: list[str] = []
     states_seen: list[str] = []
     for event in events:
+        if hasattr(event, "to_dict"):
+            event = event.to_dict()
         # RunStore JSONL uses "kind"; telemetry events use "type".
         kind = str(event.get("kind") or event.get("type", ""))
         if kind == "state":
