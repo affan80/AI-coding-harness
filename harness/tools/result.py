@@ -22,6 +22,9 @@ MISSING = "missing"
 CONFLICT = "conflict"  # e.g. create_file on an existing path
 ENVIRONMENT = "environment"  # missing tool/dependency on this machine
 SPAWN_ERROR = "spawn_error"
+INVALID_INPUT = "invalid_input"  # failed schema validation at the boundary
+HANDLER_ERROR = "handler_error"  # handler raised; normalized, never propagated
+BUDGET_EXHAUSTED = "budget_exhausted"  # call budget spent; nothing executed
 
 
 @dataclass

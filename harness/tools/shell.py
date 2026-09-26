@@ -38,6 +38,16 @@ def run_command(
     if not allowed:
         return ToolResult.failure(DENIED, f"denied: {reason}")
 
+    if (
+        timeout_seconds is not None
+        and timeout_seconds > policy.max_timeout_seconds
+    ):
+        return ToolResult.failure(
+            DENIED,
+            f"denied: requested timeout {timeout_seconds}s exceeds the "
+            f"policy maximum of {policy.max_timeout_seconds}s",
+        )
+
     timeout = timeout_seconds or policy.default_timeout_seconds
     started = time.monotonic()
     try:

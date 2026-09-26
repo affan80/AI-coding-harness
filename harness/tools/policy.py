@@ -47,6 +47,9 @@ class CommandPolicy:
     allow_patterns: list[str] = field(default_factory=list)  # empty = allow rest
     max_output_bytes: int = 20_000
     default_timeout_seconds: float = 120.0
+    # Ceiling on any explicitly requested timeout (FR-14): requests beyond it
+    # are rejected before the command ever spawns.
+    max_timeout_seconds: float = 600.0
     # Environment policy (issue #54): the child starts from a minimal allowlist
     # by default, so harness secrets never reach model-suggested commands.
     env_allowlist: list[str] = field(
