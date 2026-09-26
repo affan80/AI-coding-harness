@@ -101,7 +101,9 @@ class TestPlanner(unittest.TestCase):
             "S3_NEW", StepAction.VERIFY, "tests/test.py", "A", "A", dependencies=["S2_NEW"]
         )
 
-        new_plan = self.planner.replan(plan, "G1", [new_s2, new_s3])
+        new_plan = self.planner.replan(
+            plan, "G1", [new_s2, new_s3], failed_step_id="S2"
+        )
 
         # S1 should still be there
         self.assertIsNotNone(new_plan.get_step("S1"))
