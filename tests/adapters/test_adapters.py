@@ -156,6 +156,19 @@ def test_node_adapter_selects_package_manager_by_lockfile(tmp_path):
     assert setup[0].requires == "pnpm"
 
 
+def test_node_adapter_selects_yarn_by_lockfile_and_omits_run_subcommand(tmp_path):
+    (tmp_path / "package.json").write_text(json.dumps({
+        "scripts": {"test": "jest"},
+    }))
+    (tmp_path / "yarn.lock").write_text("__metadata:\n  version: 8\n")
+    adapter = NodeAdapter()
+    # yarn runs scripts directly, without the `run` subcommand npm/pnpm need
+    assert adapter.full_test_command(tmp_path).argv == ["yarn", "test"]
+    setup = adapter.setup_commands(tmp_path)
+    assert setup[0].argv == ["yarn", "install"]
+    assert setup[0].requires == "yarn"
+
+
 def test_node_adapter_npm_ci_when_package_lock_present(tmp_path):
     (tmp_path / "package.json").write_text("{}")
     (tmp_path / "package-lock.json").write_text("{}")
@@ -172,6 +185,43 @@ def test_node_adapter_detects_workspace_roots(tmp_path):
     adapter = NodeAdapter()
     roots = adapter.workspace_roots(tmp_path)
     assert roots == [tmp_path / "packages" / "api"]
+
+
+def test_node_workspace_roots_accept_literal_paths_alongside_globs(tmp_path):
+    (tmp_path / "package.json").write_text(json.dumps({
+        "workspaces": ["apps/web", "packages/*"],
+    }))
+    (tmp_path / "apps" / "web").mkdir(parents=True)
+    (tmp_path / "packages" / "api").mkdir(parents=True)
+    (tmp_path / "packages" / "lib").mkdir(parents=True)
+    (tmp_path / "packages" / "empty").mkdir(parents=True)  # bare dir, no manifest
+    roots = NodeAdapter().workspace_roots(tmp_path)
+    # every directory matching the declared patterns, in deterministic order;
+    # manifest-level filtering is the caller's job
+    assert roots == [
+        tmp_path / "apps" / "web",
+        tmp_path / "packages" / "api",
+        tmp_path / "packages" / "empty",
+        tmp_path / "packages" / "lib",
+    ]
+
+
+def test_node_corrupt_manifest_degrades_to_defaults_without_inventing(tmp_path):
+    (tmp_path / "package.json").write_text("{not json")
+    adapter = NodeAdapter()
+    # still a node project (manifest present), but nothing is guessable
+    assert adapter.detect(tmp_path).supported
+    assert adapter.full_test_command(tmp_path) is None
+    assert adapter.target_test_command(tmp_path, ["a.test.js"]) is None
+    assert adapter.build_commands(tmp_path) == []
+    assert adapter.workspace_roots(tmp_path) == []
+
+
+def test_node_target_test_without_targets_returns_none(tmp_path):
+    (tmp_path / "package.json").write_text(json.dumps({
+        "scripts": {"test": "jest"},
+    }))
+    assert NodeAdapter().target_test_command(tmp_path, []) is None
 
 
 def test_node_without_test_script_returns_none_not_invented(tmp_path):

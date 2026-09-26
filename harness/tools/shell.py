@@ -2,7 +2,9 @@
 
 Distinct structured outcomes: ok / nonzero_exit / timeout / denied /
 spawn_error, with the full output kept as an on-disk artifact whenever it is
-truncated, so model context only ever sees a bounded summary.
+truncated, so model context only ever sees a bounded summary. Commands run
+under the policy's environment: sanitized by default, so harness secrets do
+not leak into model-suggested processes.
 """
 
 from __future__ import annotations
@@ -47,6 +49,7 @@ def run_command(
         completed = subprocess.run(
             argv,
             cwd=str(working_dir),
+            env=policy.build_env(),
             capture_output=True,
             text=True,
             timeout=timeout,

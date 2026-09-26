@@ -2,8 +2,13 @@
 
 from pathlib import Path
 
-from harness.tools.policy import CommandPolicy
+from harness.tools.policy import SANITIZED_ENV_KEYS, CommandPolicy
 from harness.tools.shell import run_command
+
+_CANARY_PROBE = (
+    "python3 -c \"import os; "
+    "print(os.environ.get('HARNESS_CANARY', 'absent'))\""
+)
 
 
 def _policy(**kwargs) -> CommandPolicy:
@@ -84,3 +89,40 @@ def test_output_cap_truncates_and_persists_artifact(tmp_path):
     assert result.artifacts, "full output must be persisted"
     full = Path(result.artifacts[0]).read_text()
     assert len(full) >= 5000
+
+
+def test_sanitized_env_does_not_leak_harness_secrets(tmp_path, monkeypatch):
+    monkeypatch.setenv("HARNESS_CANARY", "super-secret-value")
+    result = run_command(_CANARY_PROBE, policy=_policy(), working_dir=tmp_path)
+    assert result.ok
+    assert "super-secret-value" not in result.summary
+    assert "absent" in result.summary
+
+
+def test_sanitized_env_keeps_the_bare_necessities(tmp_path):
+    result = run_command(_CANARY_PROBE, policy=_policy(), working_dir=tmp_path)
+    assert result.ok, "python3 must stay resolvable under a sanitized env"
+
+
+def test_env_extra_passes_explicit_variables(tmp_path):
+    policy = _policy(env_extra={"HARNESS_CANARY": "explicitly-set"})
+    result = run_command(_CANARY_PROBE, policy=policy, working_dir=tmp_path)
+    assert "explicitly-set" in result.summary
+
+
+def test_env_allowlist_passes_only_named_variables(tmp_path, monkeypatch):
+    monkeypatch.setenv("HARNESS_CANARY", "passed-through")
+    policy = _policy(env_allowlist=[*SANITIZED_ENV_KEYS, "HARNESS_CANARY"])
+    result = run_command(_CANARY_PROBE, policy=policy, working_dir=tmp_path)
+    assert "passed-through" in result.summary
+
+    stripped = _policy(env_allowlist=["PATH", "HOME"])
+    denied = run_command(_CANARY_PROBE, policy=stripped, working_dir=tmp_path)
+    assert "absent" in denied.summary
+
+
+def test_inherit_environment_is_an_explicit_opt_in(tmp_path, monkeypatch):
+    monkeypatch.setenv("HARNESS_CANARY", "inherited")
+    policy = _policy(inherit_environment=True)
+    result = run_command(_CANARY_PROBE, policy=policy, working_dir=tmp_path)
+    assert "inherited" in result.summary
