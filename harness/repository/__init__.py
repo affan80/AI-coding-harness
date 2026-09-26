@@ -1,29 +1,51 @@
-"""Repository intelligence: inventory, ignore handling, detection, and profiling."""
+"""Repository intelligence (Workstream B): inventory, ignores, and profiling.
 
-from .errors import InvalidRepositoryError, RepositoryError
-from .inventory import InventoryOptions, InventoryResult, inventory_repository
-from .models import (
-    FileEntry,
-    LanguageStat,
-    Manifest,
+Public entry points:
+
+- :func:`profile_repository` / :class:`RepositoryProfiler` — build a
+  :class:`~harness.contracts.repository.RepositoryProfile`.
+- :func:`build_inventory` — just the bounded candidate inventory.
+
+Dataclasses and enums live in :mod:`harness.contracts.repository` so other
+workstreams can code against the contract without importing this package.
+"""
+
+from harness.contracts.repository import (
+    InventoryLimits,
+    InventorySummary,
+    Language,
+    ManifestInfo,
+    ProfileContractError,
+    ProfileStats,
     RepositoryProfile,
+    SCHEMA_VERSION,
     TestLocation,
-    WorkspaceRoot,
 )
-from .profile import compute_fingerprint, profile_repository
+from harness.repository.detect import detect_structure
+from harness.repository.errors import (
+    InvalidRepositoryError,
+    RepositoryError,
+    RepositoryProfileError,
+)
+from harness.repository.inventory import InventoryResult, build_inventory
+from harness.repository.profile import RepositoryProfiler, profile_repository
 
 __all__ = [
-    "FileEntry",
-    "InventoryOptions",
+    "SCHEMA_VERSION",
+    "InventoryLimits",
     "InventoryResult",
+    "InventorySummary",
     "InvalidRepositoryError",
-    "LanguageStat",
-    "Manifest",
+    "Language",
+    "ManifestInfo",
+    "ProfileContractError",
+    "ProfileStats",
     "RepositoryError",
     "RepositoryProfile",
+    "RepositoryProfileError",
+    "RepositoryProfiler",
     "TestLocation",
-    "WorkspaceRoot",
-    "compute_fingerprint",
-    "inventory_repository",
+    "build_inventory",
+    "detect_structure",
     "profile_repository",
 ]
