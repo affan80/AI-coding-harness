@@ -32,6 +32,7 @@ _DOCUMENT_NAMES = (
     "findings.json",
     "verification.json",
     "metrics.json",
+    "changed-files.json",
 )
 
 # Raw tool output at or below this size stays inline in the tool record;
@@ -258,6 +259,18 @@ class RunStore:
         """
         self.write_document("verification.json", report)
 
+    def record_changed_files(self, files: list[str]) -> None:
+        """Persist changed-files.json: every path the session modified.
+
+        Written together with patches.diff and verification.json so a
+        reviewer can reconstruct what changed and how it was checked from
+        the run directory alone (issue #26).
+        """
+        self.write_document(
+            "changed-files.json",
+            {"count": len(files), "files": sorted(files)},
+        )
+
 
 def _atomic_write(path: Path, content: bytes) -> None:
     tmp = path.with_name(path.name + ".tmp")
@@ -283,3 +296,45 @@ def _summarize(text: str, limit: int = 400) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + f"... [{len(text)} chars total]"
+
+
+def reconstruct_run(run_dir: Path) -> dict:
+    """Reconstruct changed files and check outcomes from a run directory (#26).
+
+    Reads ``changed-files.json``, ``verification.json``, ``patches.diff``, and
+    ``session.json`` — nothing else — which is exactly what a reviewer gets
+    after any terminal outcome (verified, partial, or failed). Missing
+    documents degrade to empty values instead of failing the reconstruction.
+    """
+    run_dir = Path(run_dir)
+
+    def _load(name: str) -> dict:
+        path = run_dir / name
+        if not path.is_file():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+
+    session = _load("session.json")
+    verification = _load("verification.json")
+    changed = _load("changed-files.json")
+
+    patch_labels: list[str] = []
+    diff_path = run_dir / "patches.diff"
+    if diff_path.is_file():
+        for line in diff_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("--- patch:") and line.endswith(" ---"):
+                patch_labels.append(line[len("--- patch:") : -len(" ---")].strip())
+
+    return {
+        "session_id": session.get("session_id", ""),
+        "status": session.get("status", ""),
+        "stop_reason": session.get("stop_reason", ""),
+        "changed_files": sorted(changed.get("files", [])),
+        "patch_count": len(patch_labels),
+        "patch_labels": patch_labels,
+        "checks": verification.get("checks", []),
+        "verification_status": verification.get("status", "not_run"),
+    }
