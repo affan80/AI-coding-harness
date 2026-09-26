@@ -37,21 +37,22 @@ def run_session(
 
         profile = profiler(request.repository_path)
         store.write_document("repository.json", profile.to_dict())
+        summary = profile.summary
         renderer.show_info(
-            f"repository: {profile.total_files} files, {profile.total_bytes} bytes"
+            f"repository: {summary.total_files} files, {summary.total_bytes} bytes"
         )
         languages = ", ".join(
-            f"{lang.language} ({lang.files})" for lang in profile.languages[:5]
+            f"{lang.language} ({lang.file_count})" for lang in summary.languages[:5]
         )
         if languages:
             renderer.show_info(f"languages: {languages}")
         store.append_event(
             "info",
-            f"profiled {profile.total_files} files",
+            f"profiled {summary.total_files} files",
             data={
-                "total_files": profile.total_files,
-                "total_bytes": profile.total_bytes,
-                "fingerprint": profile.fingerprint,
+                "total_files": summary.total_files,
+                "total_bytes": summary.total_bytes,
+                "fingerprint": profile.fingerprint(),
             },
         )
 
