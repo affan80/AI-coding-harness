@@ -76,6 +76,7 @@ class RunStore:
         self._clock = clock
         self._event_seq = 0
         self._tool_seq = 0
+        self._patch_count = 0
 
     # -- construction ----------------------------------------------------
 
@@ -229,6 +230,33 @@ class RunStore:
             sha256=hashlib.sha256(content).hexdigest(),
             size=len(content),
         )
+
+    # -- patch and verification evidence --------------------------------------
+
+    def append_patch(self, diff_text: str, label: str = "") -> None:
+        """Append one inspectable diff to patches.diff under a labeled header."""
+        stamp = self._clock().isoformat()
+        header = f"--- patch: {label or 'unnamed'} ({stamp}) ---\n"
+        body = diff_text if diff_text.endswith("\n") else diff_text + "\n"
+        separator = "\n" if self._patch_count > 0 else ""
+        # patches.diff holds human-readable diffs, not JSON lines; write the
+        # header and body directly as one O_APPEND write.
+        fd = os.open(self.paths.stream("patches.diff"), os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+        try:
+            os.write(fd, (separator + header + body).encode("utf-8"))
+        finally:
+            os.close(fd)
+        self._patch_count += 1
+
+    def write_verification(self, report: dict) -> None:
+        """Persist verification.json.
+
+        Expected shape (produced by the verification ladder, issue #14):
+        ``{"status": "pass"|"fail"|"not_run", "checks": [{"name", "command",
+        "exit_code", "ok", "summary"}], "notes": [...]}``. The store persists
+        the document as-is so failed and partial sessions keep their evidence.
+        """
+        self.write_document("verification.json", report)
 
 
 def _atomic_write(path: Path, content: bytes) -> None:
