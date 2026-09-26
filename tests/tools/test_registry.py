@@ -1,7 +1,6 @@
-import pytest
-from pathlib import Path
 from harness.tools.registry import ToolRegistry, ToolSpec
-from harness.tools.result import ToolResult, DENIED, OUT_OF_SCOPE, TRAVERSAL
+from harness.tools.result import DENIED, OUT_OF_SCOPE, TRAVERSAL, ToolResult
+
 
 def test_tool_registry_registration():
     registry = ToolRegistry("/repo", allowed_scope=[])
@@ -47,7 +46,9 @@ def test_call_permission_denied():
 
 def test_call_success():
     registry = ToolRegistry("/repo", allowed_scope=[])
-    spec = ToolSpec("my_tool", "read", False, lambda path: ToolResult(ok=True, summary=f"read {path}"))
+    spec = ToolSpec(
+        "my_tool", "read", False, lambda path: ToolResult(ok=True, summary=f"read {path}")
+    )
     registry.register(spec)
     res = registry.call("executor", "my_tool", path="foo.txt")
     assert res.ok

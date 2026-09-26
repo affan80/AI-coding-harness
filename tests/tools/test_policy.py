@@ -1,5 +1,5 @@
-import pytest
 from harness.tools.policy import CommandPolicy, actor_allowed
+
 
 def test_command_policy_deny():
     policy = CommandPolicy()
