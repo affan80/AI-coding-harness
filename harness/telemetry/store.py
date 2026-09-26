@@ -32,6 +32,7 @@ _DOCUMENT_NAMES = (
     "repository.json",
     "findings.json",
     "verification.json",
+    "recovery.json",
     "metrics.json",
     "changed-files.json",
 )
