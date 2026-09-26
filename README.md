@@ -6,6 +6,7 @@ Hackathon project for an autonomous coding harness that accepts a repository and
 
 - [Product Requirements Document](docs/PRD.md)
 - [4-person execution plan](docs/TEAM_PLAN.md)
+- [Parent and sub-issue breakdown](docs/ISSUE_BREAKDOWN.md)
 - [Contribution rules](CONTRIBUTING.md)
 - [Implementation backlog](https://github.com/affan80/pentester-AI-harness/issues)
 

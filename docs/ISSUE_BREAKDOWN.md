@@ -1,0 +1,30 @@
+# GitHub Issue Breakdown
+
+The implementation backlog uses native GitHub sub-issues. Parent issues remain the milestone completion gates; each parent has three independently reviewable feature slices derived from the PRD.
+
+| Milestone | Owner | Parent | Feature sub-issues |
+|---|---|---|---|
+| M1 | Person A | [#1 Session models, budgets, and state machine](https://github.com/affan80/pentester-AI-harness/issues/1) | [#21–#23](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM1.1%5D+OR+%5BM1.2%5D+OR+%5BM1.3%5D) |
+| M1 | Person D | [#2 Evidence store and run directory](https://github.com/affan80/pentester-AI-harness/issues/2) | [#24–#26](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM1.4%5D+OR+%5BM1.5%5D+OR+%5BM1.6%5D) |
+| M1 | Person D | [#3 CLI/TUI workflow](https://github.com/affan80/pentester-AI-harness/issues/3) | [#27–#29](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM1.7%5D+OR+%5BM1.8%5D+OR+%5BM1.9%5D) |
+| M1 | Person B | [#4 Repository inventory and profile](https://github.com/affan80/pentester-AI-harness/issues/4) | [#30–#32](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM1.10%5D+OR+%5BM1.11%5D+OR+%5BM1.12%5D) |
+| M1 | Person A | [#5 Intent and goal graph](https://github.com/affan80/pentester-AI-harness/issues/5) | [#33–#35](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM1.13%5D+OR+%5BM1.14%5D+OR+%5BM1.15%5D) |
+| M1 | Person A | [#6 Shared ModelClient](https://github.com/affan80/pentester-AI-harness/issues/6) | [#36–#38](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM1.16%5D+OR+%5BM1.17%5D+OR+%5BM1.18%5D) |
+| M2 | Person C | [#7 Tool registry and permissions](https://github.com/affan80/pentester-AI-harness/issues/7) | [#39–#41](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM2.1%5D+OR+%5BM2.2%5D+OR+%5BM2.3%5D) |
+| M2 | Person B | [#8 Repository discovery](https://github.com/affan80/pentester-AI-harness/issues/8) | [#42–#44](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM2.4%5D+OR+%5BM2.5%5D+OR+%5BM2.6%5D) |
+| M2 | Person B | [#9 Context manager](https://github.com/affan80/pentester-AI-harness/issues/9) | [#45–#47](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM2.7%5D+OR+%5BM2.8%5D+OR+%5BM2.9%5D) |
+| M2 | Person A | [#10 Execution planning](https://github.com/affan80/pentester-AI-harness/issues/10) | [#48–#50](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM2.10%5D+OR+%5BM2.11%5D+OR+%5BM2.12%5D) |
+| M3 | Person C | [#11 Executor and patch engine](https://github.com/affan80/pentester-AI-harness/issues/11) | [#51–#53](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM3.1%5D+OR+%5BM3.2%5D+OR+%5BM3.3%5D) |
+| M3 | Person C | [#12 Shell, checkpoints, and rollback](https://github.com/affan80/pentester-AI-harness/issues/12) | [#54–#56](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM3.4%5D+OR+%5BM3.5%5D+OR+%5BM3.6%5D) |
+| M3 | Person C | [#13 Python and Node adapters](https://github.com/affan80/pentester-AI-harness/issues/13) | [#57–#59](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM3.7%5D+OR+%5BM3.8%5D+OR+%5BM3.9%5D) |
+| M3 | Person C | [#14 Verification ladder](https://github.com/affan80/pentester-AI-harness/issues/14) | [#60–#62](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM3.10%5D+OR+%5BM3.11%5D+OR+%5BM3.12%5D) |
+| M4 | Person C | [#15 Recovery and loop detection](https://github.com/affan80/pentester-AI-harness/issues/15) | [#63–#65](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM4.1%5D+OR+%5BM4.2%5D+OR+%5BM4.3%5D) |
+| M4 | Persons A+C | [#16 Evidence-gated audit](https://github.com/affan80/pentester-AI-harness/issues/16) | [#66–#68](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM4.4%5D+OR+%5BM4.5%5D+OR+%5BM4.6%5D) |
+| M5 | Person D | [#17 Telemetry and final report](https://github.com/affan80/pentester-AI-harness/issues/17) | [#69–#71](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM5.1%5D+OR+%5BM5.2%5D+OR+%5BM5.3%5D) |
+| M5 | Person D | [#18 MCP and GitHub ingestion](https://github.com/affan80/pentester-AI-harness/issues/18) | [#72–#74](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM5.4%5D+OR+%5BM5.5%5D+OR+%5BM5.6%5D) |
+| M5 | Person D | [#19 Demo and context proof](https://github.com/affan80/pentester-AI-harness/issues/19) | [#75–#77](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM5.7%5D+OR+%5BM5.8%5D+OR+%5BM5.9%5D) |
+| M5 | All | [#20 Integration and release](https://github.com/affan80/pentester-AI-harness/issues/20) | [#78–#80](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+%5BM5.10%5D+OR+%5BM5.11%5D+OR+%5BM5.12%5D) |
+
+## Working rule
+
+Close a parent only after all three linked sub-issues are closed and the parent's full acceptance criteria and verification-evidence requirements are satisfied. A child may be reassigned, but its milestone and parent relationship should remain stable.

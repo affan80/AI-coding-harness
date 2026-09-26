@@ -1206,7 +1206,7 @@ Once the team chooses an actual runtime target (container registry, VM, hosted s
 
 ## 29. GitHub issue status
 
-As checked on **2026-09-26**, [`affan80/pentester-AI-harness`](https://github.com/affan80/pentester-AI-harness/issues) has 20 open implementation issues derived from this PRD. Every issue includes scope, acceptance criteria, dependencies, PRD references, required verification evidence, and suggested ownership.
+As checked on **2026-09-26**, [`affan80/pentester-AI-harness`](https://github.com/affan80/pentester-AI-harness/issues) has 20 open parent implementation issues and 60 linked feature sub-issues derived from this PRD. Every issue includes scope, acceptance criteria, dependencies, PRD references, required verification evidence, and suggested ownership. The complete hierarchy is indexed in [`docs/ISSUE_BREAKDOWN.md`](ISSUE_BREAKDOWN.md).
 
 | Milestone | Issues | Scope |
 |---|---|---|
@@ -1215,6 +1215,8 @@ As checked on **2026-09-26**, [`affan80/pentester-AI-harness`](https://github.co
 | M3 | [#11–#14](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+is%3Aopen+%5BM3%5D) | Execution, patching, shell/Git controls, adapters, and verification |
 | M4 | [#15–#16](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+is%3Aopen+%5BM4%5D) | Recovery, loop detection, rollback, and evidence-gated audit |
 | M5 | [#17–#20](https://github.com/affan80/pentester-AI-harness/issues?q=is%3Aissue+is%3Aopen+%5BM5%5D) | Telemetry, MCP, demos, integration, and release |
+
+Parent issues are milestone completion gates. Their three native GitHub sub-issues divide the work into core contract, operational behavior, and verification/integration slices that can be assigned and reviewed independently.
 
 ---
 
