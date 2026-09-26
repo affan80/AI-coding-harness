@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from conftest import make_file
-
 from harness.repository import profile_repository
+from tests.conftest import make_file
 
 
 def test_python_project_profile(python_project: Path) -> None:

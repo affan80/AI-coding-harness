@@ -5,9 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from conftest import make_file
-
 from harness.repository import InventoryOptions, inventory_repository
+from tests.conftest import make_file
 
 
 def _paths(result) -> set[str]:
