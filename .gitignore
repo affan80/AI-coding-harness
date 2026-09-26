@@ -1,7 +1,17 @@
-.venv/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
-.ruff_cache/
+.venv/
+.coverage
+dist/
+build/
+
+# uv
+uv.lock
+
+# Harness run artifacts
 runs/
+
+# OS
 .DS_Store

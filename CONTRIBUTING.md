@@ -43,7 +43,7 @@ At least one teammate should review behavior-changing changes before merge when 
 
 ## Code ownership by area
 
-The working ownership model is documented in [`docs/TEAM_PLAN.md`](docs/TEAM_PLAN.md). Ownership exists to reduce conflicts, not to prevent teammates from helping each other.
+The working ownership model is documented in [`docs/TEAM_PLAN.md`](docs/TEAM_PLAN.md), and the per-workstream file map that keeps the four parallel PR streams conflict-free is in [`docs/FILE_OWNERSHIP.md`](docs/FILE_OWNERSHIP.md). Ownership exists to reduce conflicts, not to prevent teammates from helping each other.
 
 Before changing another owner's core area, coordinate the shared contract first. Small fixes needed to complete an integrated PR are fine when clearly described.
 
