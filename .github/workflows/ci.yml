@@ -52,6 +52,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      # Demo scenarios A/B shell out to `python -m pytest` as their
+      # verification command inside the fixture repositories.
+      - name: Install pytest for demo verification
+        run: python -m pip install pytest
+
       - name: Run all demo scenarios from clean states
         run: python -m demos.run_demo --scenario all --out runs/demo
 
