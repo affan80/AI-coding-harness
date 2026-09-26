@@ -62,6 +62,8 @@ BUILTIN_DIR_NAMES: frozenset[str] = frozenset(
         ".sass-cache",
         # IDE-private state
         ".idea",
+        # harness run artifacts (mirrors the repository .gitignore "runs/")
+        "runs",
     }
 )
 

@@ -11,6 +11,7 @@ workstreams can code against the contract without importing this package.
 """
 
 from harness.contracts.repository import (
+    SCHEMA_VERSION,
     InventoryLimits,
     InventorySummary,
     Language,
@@ -18,7 +19,6 @@ from harness.contracts.repository import (
     ProfileContractError,
     ProfileStats,
     RepositoryProfile,
-    SCHEMA_VERSION,
     TestLocation,
 )
 from harness.repository.detect import detect_structure
