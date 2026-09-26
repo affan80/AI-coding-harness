@@ -90,7 +90,8 @@ def test_keyboard_interrupt_maps_to_cancelled(tmp_path):
 def test_verification_and_changed_files_land_in_the_run_dir(tmp_path):
     code, _ = _run(tmp_path, lambda *a: _summary(STATUS_VERIFIED))
     assert code == 0
-    run_dir = next((tmp_path / "runs").iterdir())
+    # runs/ also holds the auto-written .gitignore file; pick the session dir.
+    run_dir = next(p for p in (tmp_path / "runs").iterdir() if p.is_dir())
     verification = json.loads(
         (run_dir / "verification.json").read_text(encoding="utf-8")
     )
