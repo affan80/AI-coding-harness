@@ -28,6 +28,7 @@ BUILTIN_DIR_NAMES: frozenset[str] = frozenset(
         # dependency/dependency-store directories
         "node_modules",
         "bower_components",
+        "vendor",
         "jspm_packages",
         ".pnpm-store",
         ".yarn",
@@ -64,6 +65,7 @@ BUILTIN_DIR_NAMES: frozenset[str] = frozenset(
         ".idea",
         # harness run artifacts (mirrors the repository .gitignore "runs/")
         "runs",
+        "artifacts",
     }
 )
 
