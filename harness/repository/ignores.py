@@ -24,6 +24,7 @@ BUILTIN_IGNORE_PATTERNS: tuple[str, ...] = (
     "node_modules/",
     "bower_components/",
     ".pnpm-store/",
+    "vendor/",
     "venv/",
     ".venv/",
     "__pycache__/",
@@ -50,6 +51,7 @@ BUILTIN_IGNORE_PATTERNS: tuple[str, ...] = (
     "*.pyc",
     "*.pyo",
     ".DS_Store",
+    "Thumbs.db",
     ".coverage",
 )
 

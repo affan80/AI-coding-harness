@@ -47,6 +47,10 @@ def inventory_repository(
         _scan_dir(os.fspath(root), "", 0, GitignoreStack(), state, options)
     except _CapReached:
         truncated = True
+        # The walk aborts at the cap (bounded traversal), so the exact total
+        # of remaining files is unknowable; the tripping file is the honest
+        # lower bound and joins any depth omissions already counted.
+        state.omitted_by_limit += 1
     state.entries.sort(key=lambda e: e.path)
     return InventoryResult(
         entries=state.entries,
