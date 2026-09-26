@@ -13,6 +13,10 @@ from harness.repository import profile_repository
 from tests.conftest import make_file
 
 
+def _commands_by_purpose(profile) -> dict[str, str]:
+    return {c.purpose: c.command for c in profile.commands}
+
+
 def test_node_commands_are_never_invented(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     root.mkdir()
@@ -22,26 +26,33 @@ def test_node_commands_are_never_invented(tmp_path: Path) -> None:
 
     profile = profile_repository(root)
 
-    assert profile.commands == {}
+    assert profile.commands == ()
 
 
 def test_node_commands_come_only_from_configured_scripts(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     root.mkdir()
+    # "check" is one of the contract's canonical purposes; "compile" is not.
     make_file(root, "package.json", json.dumps({
         "name": "app",
-        "scripts": {"check": "tsc --noEmit"},  # non-standard name: not mapped
+        "scripts": {"check": "tsc --noEmit", "compile": "tsc"},
     }))
     make_file(root, "src/index.ts", "export const x = 1;\n")
 
     profile = profile_repository(root)
 
-    # a script that is not one of the canonical names is not invented into one
-    assert "typecheck" not in profile.commands
-    assert profile.commands == {}
+    by_purpose = _commands_by_purpose(profile)
+    # canonical-named scripts are reported under their configured purpose
+    assert by_purpose == {"check": "npm run check"}
+    # a non-canonical script name is never invented into a canonical purpose
+    assert "compile" not in by_purpose
 
 
-def test_requirements_only_project_still_gets_test_command(tmp_path: Path) -> None:
+def test_requirements_only_project_invents_no_commands(tmp_path: Path) -> None:
+    # The no-invention rule wins over convenience: a bare requirements.txt
+    # with a tests/ directory is not enough evidence to claim a test command.
+    # (The pre-rework detector mapped this to "pytest -q"; the contract-based
+    # implementation only reports commands with an explicit source.)
     root = tmp_path / "repo"
     root.mkdir()
     make_file(root, "requirements.txt", "rich>=13\n")
@@ -49,7 +60,9 @@ def test_requirements_only_project_still_gets_test_command(tmp_path: Path) -> No
 
     profile = profile_repository(root)
 
-    assert profile.commands.get("test") == "pytest -q"
+    assert profile.commands == ()
+    manifest_kinds = {m.kind for m in profile.manifests}
+    assert "requirements.txt" in manifest_kinds
 
 
 def test_mixed_python_and_node_manifests_merge_deterministically(
@@ -67,26 +80,26 @@ def test_mixed_python_and_node_manifests_merge_deterministically(
 
     profile = profile_repository(root)
 
-    assert profile.commands == {
+    assert _commands_by_purpose(profile) == {
         "build": "npm run build",
         "lint": "ruff check .",
-        "test": "npm run test",
+        "test": "npm test",
     }
     # determinism: same inputs, byte-identical command mapping
     again = profile_repository(root)
-    assert again.commands == profile.commands
+    assert _commands_by_purpose(again) == _commands_by_purpose(profile)
 
 
 def test_monorepo_profile_is_stable_for_unchanged_input(npm_monorepo: Path) -> None:
     first = profile_repository(npm_monorepo)
     second = profile_repository(npm_monorepo)
 
-    assert first.fingerprint == second.fingerprint
+    assert first.fingerprint() == second.fingerprint()
     assert first.commands == second.commands
-    assert first.monorepo and second.monorepo
-    # workspaces and configured commands survive the round trip
+    # workspaces detected (both package roots) and stable across runs
+    assert len(first.workspaces) == 2
     assert first.workspaces == second.workspaces
-    assert first.commands.get("test") == "npm run test"
+    assert _commands_by_purpose(first).get("test") == "npm test"
 
 
 def test_manifests_record_kind_and_path_for_both_ecosystems(tmp_path: Path) -> None:
@@ -99,4 +112,4 @@ def test_manifests_record_kind_and_path_for_both_ecosystems(tmp_path: Path) -> N
     profile = profile_repository(root)
 
     manifest_kinds = {m.kind for m in profile.manifests}
-    assert manifest_kinds == {"pyproject.toml", "requirements-dev.txt", "package.json"}
+    assert manifest_kinds == {"pyproject.toml", "requirements.txt", "package.json"}
