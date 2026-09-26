@@ -11,7 +11,7 @@ if git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- . ':!scripts/ci.sh'; then
   exit 1
 fi
 
-if find . -path './.git' -prune -o -type f -size +10M -print | grep -q .; then
+if find . \( -path './.git' -o -path './.venv' -o -path './venv' -o -path './node_modules' \) -prune -o -type f -size +10M -print | grep -q .; then
   echo "[ci] file larger than 10 MiB found; store generated artifacts outside git" >&2
   exit 1
 fi
