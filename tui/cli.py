@@ -14,36 +14,19 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable
-from enum import IntEnum, StrEnum
+from enum import IntEnum
 from pathlib import Path
 
-from harness.core.models import Budget, UserRequest
-from harness.telemetry.models import RunStatus
+from harness.core.models import (
+    Budget,
+    CheckpointPolicy,
+    SessionStatus,
+    UserRequest,
+    VerificationDepth,
+    WritePolicy,
+)
 from tui.render import Renderer
 from tui.session_runner import run_session
-
-
-class WritePolicy(StrEnum):
-    """Where the harness may write in the target repository (PRD §5.1)."""
-
-    SCOPED = "scoped"  # writes restricted to approved scope paths
-    ALL = "all"
-
-
-class VerificationDepth(StrEnum):
-    """How much of the verification ladder to run (PRD §5.1)."""
-
-    SYNTAX = "syntax"
-    TARGETED = "targeted"
-    FULL = "full"
-
-
-class CheckpointPolicy(StrEnum):
-    """When to create Git checkpoints before edits (PRD §5.1)."""
-
-    WHEN = "when"
-    ALWAYS = "always"
-    NEVER = "never"
 
 
 class ExitCode(IntEnum):
@@ -63,13 +46,13 @@ class _Parser(argparse.ArgumentParser):
         raise CliError(f"{message}\n{self.format_usage().strip()}")
 
 
-def exit_code_for(status: RunStatus) -> int:
+def exit_code_for(status: SessionStatus) -> int:
     mapping = {
-        RunStatus.VERIFIED: ExitCode.VERIFIED,
-        RunStatus.PARTIAL: ExitCode.PARTIAL,
-        RunStatus.FAILED: ExitCode.FAILED,
-        RunStatus.CANCELLED: ExitCode.CANCELLED,
-        RunStatus.IN_PROGRESS: ExitCode.FAILED,
+        SessionStatus.VERIFIED: ExitCode.VERIFIED,
+        SessionStatus.PARTIAL: ExitCode.PARTIAL,
+        SessionStatus.FAILED: ExitCode.FAILED,
+        SessionStatus.CANCELLED: ExitCode.CANCELLED,
+        SessionStatus.IN_PROGRESS: ExitCode.FAILED,
     }
     return int(mapping[status])
 
@@ -110,8 +93,8 @@ def collect_request(
     args: argparse.Namespace,
     input_fn: Callable[[str], str],
     interactive: bool,
-) -> tuple[UserRequest, Budget]:
-    """Build the canonical UserRequest plus Budget from flags and/or prompts."""
+) -> UserRequest:
+    """Build one UserRequest from flags and/or interactive prompts."""
     repository = args.repository
     objective = args.objective
     if repository is None and interactive:
@@ -131,6 +114,19 @@ def collect_request(
     def _limit(value: int | None, fallback: int) -> int:
         return fallback if value is None else value
 
+    # Budget(0, ...) is a valid "exhaust immediately" model, so the CLI-level
+    # minimum of 1 is checked here before construction, not on Budget itself.
+    for attr in ("max_model_calls", "max_iterations", "max_retries_per_goal"):
+        value = getattr(args, attr)
+        if value is not None and value < 1:
+            raise CliError(f"budget.{attr} must be at least 1 (got {value})")
+    if args.max_audit_rounds is not None and args.max_audit_rounds < 0:
+        raise CliError(
+            f"budget.max_audit_rounds must be at least 0 (got {args.max_audit_rounds})"
+        )
+    if args.timeout is not None and args.timeout < 1:
+        raise CliError(f"budget.command_timeout_seconds must be at least 1 (got {args.timeout})")
+
     try:
         budget = Budget(
             max_model_calls=_limit(args.max_model_calls, defaults.max_model_calls),
@@ -140,34 +136,27 @@ def collect_request(
             ),
             max_audit_rounds=_limit(args.max_audit_rounds, defaults.max_audit_rounds),
             command_timeout_seconds=_limit(
-                args.timeout, int(defaults.command_timeout_seconds)
+                args.timeout, defaults.command_timeout_seconds
             ),
         )
+        request = UserRequest(
+            repository_path=repository,
+            objective=objective,
+            scope_paths=tuple(args.scope),
+            write_policy=WritePolicy(args.write_policy),
+            verification_depth=VerificationDepth(args.verification_depth),
+            audit_enabled=not args.no_audit,
+            checkpoint_policy=CheckpointPolicy(args.checkpoint),
+            budget=budget,
+        )
+        request.validate()
     except ValueError as exc:
         raise CliError(str(exc)) from exc
-
-    for scope in args.scope:
-        if scope.startswith("/") or ".." in scope.split("/"):
-            raise CliError(
-                f"invalid allowed scope {scope!r}: use relative paths inside the repository"
-            )
-    constraints = (
-        f"write_policy={WritePolicy(args.write_policy).value}",
-        f"verification_depth={VerificationDepth(args.verification_depth).value}",
-        f"checkpoint_policy={CheckpointPolicy(args.checkpoint).value}",
-        f"audit_enabled={'false' if args.no_audit else 'true'}",
-    )
-    request = UserRequest(
-        objective=objective,
-        repository_path=repository,
-        scope_paths=tuple(args.scope),
-        constraints=constraints,
-    )
     if not Path(repository).is_dir():
         raise CliError(
             f"repository path does not exist or is not a directory: {repository}"
         )
-    return request, budget
+    return request
 
 
 def main(
@@ -183,7 +172,7 @@ def main(
     try:
         args = parser.parse_args(argv)
         interactive = not args.non_interactive and stdout.isatty()
-        request, budget = collect_request(args, input_fn, interactive)
+        request = collect_request(args, input_fn, interactive)
     except CliError as exc:
         print(f"error: {exc}", file=stderr)
         return int(ExitCode.USAGE_ERROR)
@@ -193,7 +182,7 @@ def main(
 
     renderer = Renderer(stdout)
     try:
-        result = run_session(request, budget, args.runs_dir, renderer)
+        result = run_session(request, args.runs_dir, renderer)
     except KeyboardInterrupt:
         print("error: cancelled", file=stderr)
         return int(ExitCode.CANCELLED)

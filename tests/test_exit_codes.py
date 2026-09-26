@@ -8,8 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from harness.core.models import UserRequest
-from harness.telemetry.models import RunStatus
+from harness.core.models import SessionStatus, UserRequest
 from tui.cli import ExitCode, main
 from tui.render import SessionResult
 from tui.session_runner import run_session
@@ -18,10 +17,10 @@ from tui.session_runner import run_session
 @pytest.mark.parametrize(
     "status, expected",
     [
-        (RunStatus.VERIFIED, 0),
-        (RunStatus.PARTIAL, 1),
-        (RunStatus.FAILED, 2),
-        (RunStatus.CANCELLED, 3),
+        (SessionStatus.VERIFIED, 0),
+        (SessionStatus.PARTIAL, 1),
+        (SessionStatus.FAILED, 2),
+        (SessionStatus.CANCELLED, 3),
     ],
 )
 def test_status_to_exit_code_mapping(status, expected) -> None:
@@ -56,7 +55,7 @@ def test_scripted_session_against_local_repository(tmp_path: Path) -> None:
     session = json.loads((run_dir / "session.json").read_text())
     assert session["status"] == "partial"
     profile = json.loads((run_dir / "repository.json").read_text())
-    assert profile["total_files"] == 2
+    assert profile["summary"]["total_files"] == 2
     assert (run_dir / "events.jsonl").exists()
     assert json.loads((run_dir / "verification.json").read_text())["status"] == "not_run"
 
@@ -128,8 +127,8 @@ def test_session_failure_maps_to_non_zero_exit(tmp_path: Path, monkeypatch) -> N
 @pytest.mark.parametrize(
     "status, expected",
     [
-        (RunStatus.VERIFIED, int(ExitCode.VERIFIED)),
-        (RunStatus.CANCELLED, int(ExitCode.CANCELLED)),
+        (SessionStatus.VERIFIED, int(ExitCode.VERIFIED)),
+        (SessionStatus.CANCELLED, int(ExitCode.CANCELLED)),
     ],
 )
 def test_runner_result_status_drives_exit_code(
@@ -137,7 +136,7 @@ def test_runner_result_status_drives_exit_code(
 ) -> None:
     (tmp_path / "app.py").write_text("x\n")
 
-    def fake_run_session(request, budget=None, runs_root="runs", renderer=None):
+    def fake_run_session(request, runs_root="runs", renderer=None):
         return SessionResult(status=status, report_path=str(runs_root))
 
     monkeypatch.setattr("tui.cli.run_session", fake_run_session)
@@ -158,7 +157,7 @@ def test_keyboard_interrupt_outside_runner_maps_to_cancelled(
 ) -> None:
     (tmp_path / "app.py").write_text("x\n")
 
-    def interrupted_session(request, budget=None, runs_root="runs", renderer=None):
+    def interrupted_session(request, runs_root="runs", renderer=None):
         raise KeyboardInterrupt
 
     monkeypatch.setattr("tui.cli.run_session", interrupted_session)
@@ -186,7 +185,7 @@ def test_runner_itself_finalizes_cancelled_on_interrupt(tmp_path: Path) -> None:
         profiler=InterruptingProfiler(),
     )
 
-    assert result.status == RunStatus.CANCELLED
+    assert result.status == SessionStatus.CANCELLED
     assert result.report_path is not None
     session = json.loads((Path(result.report_path) / "session.json").read_text())
     assert session["status"] == "cancelled"

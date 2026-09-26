@@ -11,7 +11,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import TextIO
 
-from harness.telemetry.models import RunStatus, ToolCallRecord
+from harness.core.models import SessionStatus
+from harness.telemetry.models import ToolCallRecord
 
 LINE_WIDTH = 100
 
@@ -20,7 +21,7 @@ LINE_WIDTH = 100
 class SessionResult:
     """What the user sees summarized at the end of a session."""
 
-    status: RunStatus
+    status: SessionStatus
     goals_completed: int | None = None
     goals_total: int | None = None
     files_changed: list[str] = field(default_factory=list)

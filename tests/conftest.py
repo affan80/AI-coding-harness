@@ -1,4 +1,4 @@
-"""Shared test fixtures."""
+"""Shared fixtures: synthetic repository trees and a deterministic clock."""
 
 from __future__ import annotations
 
@@ -7,6 +7,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+
+
+def make_file(root: Path, rel: str, content: str = "x\n") -> Path:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    return path
 
 
 class FakeClock:
@@ -25,18 +32,6 @@ class FakeClock:
 @pytest.fixture
 def fake_clock() -> FakeClock:
     return FakeClock()
-
-
-# ---------------------------------------------------------------------------
-# Synthetic repository builders (repository intelligence tests)
-# ---------------------------------------------------------------------------
-
-
-def make_file(root: Path, rel: str, content: str = "x\n") -> Path:
-    path = root / rel
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
-    return path
 
 
 @pytest.fixture

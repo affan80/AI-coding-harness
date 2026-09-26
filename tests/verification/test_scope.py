@@ -68,8 +68,8 @@ def test_missing_reproducer_is_skipped_not_failed(run_ladder, fake_runner, make_
 
 
 def test_no_test_evidence_is_inconclusive(tmp_path, fake_runner, make_goal) -> None:
-    from harness.adapters import NodeAdapter
     from harness.verification import run_verification_ladder
+    from harness.verification.adapters import NodeAdapter
 
     root = tmp_path / "nodeless"
     root.mkdir()
@@ -100,8 +100,8 @@ def test_verified_requires_diff_scope_even_when_tests_pass(
 
 def test_real_end_to_end_ladder_on_python_project(tmp_path: Path, make_file_fixture) -> None:
     """Full ladder with real adapter and real subprocesses, fail then pass."""
-    from harness.adapters import select_adapter
     from harness.verification import VerificationInput, run_verification_ladder
+    from harness.verification.adapters import select_adapter
 
     root = tmp_path / "repo"
     root.mkdir()

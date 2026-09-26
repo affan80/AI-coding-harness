@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from harness.core.models import UserRequest
-from harness.telemetry import RunStatus, RunStore
+from harness.core.models import SessionStatus, UserRequest
+from harness.telemetry import RunStore
 
 _AUTH_DIFF = """diff --git a/app/auth.py b/app/auth.py
 --- a/app/auth.py
@@ -82,7 +82,7 @@ def test_reviewer_reconstructs_outcome_from_run_directory_alone(tmp_path: Path) 
             "notes": ["full suite regression pending replan"],
         }
     )
-    store.finalize(RunStatus.PARTIAL, stop_reason="full-suite regression")
+    store.finalize(SessionStatus.PARTIAL, stop_reason="full-suite regression")
 
     run_dir = store.run_dir
     session = json.loads((run_dir / "session.json").read_text())
@@ -121,7 +121,7 @@ def test_failed_session_without_patches_keeps_evidence(tmp_path: Path) -> None:
             "notes": ["baseline already failing before any patch"],
         }
     )
-    store.finalize(RunStatus.FAILED, stop_reason="baseline verification failed")
+    store.finalize(SessionStatus.FAILED, stop_reason="baseline verification failed")
 
     assert not (store.run_dir / "patches.diff").exists()
     session = json.loads((store.run_dir / "session.json").read_text())

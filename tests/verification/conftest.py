@@ -7,9 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from harness.adapters import PythonAdapter
 from harness.execution.runner import CommandResult
 from harness.verification import GoalKind, VerificationInput, run_verification_ladder
+from harness.verification.adapters import PythonAdapter
+from tests.conftest import make_file
+
+
+@pytest.fixture
+def make_file_fixture() -> Callable[..., Path]:
+    """Expose the shared ``make_file`` helper as a fixture."""
+    return make_file
 
 DIFF = """diff --git a/app/math.py b/app/math.py
 --- a/app/math.py

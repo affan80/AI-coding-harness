@@ -25,6 +25,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -37,3 +38,32 @@ jobs:
       - name: Run repository checks
         run: ./scripts/ci.sh
 
+  # Issue #79 (M5.11): every demo scenario must pass from a clean state.
+  demo-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Demo scenarios A/B shell out to `python -m pytest` as their
+      # verification command inside the fixture repositories.
+      - name: Install pytest for demo verification
+        run: python -m pip install pytest
+
+      - name: Run all demo scenarios from clean states
+        run: python -m demos.run_demo --scenario all --out runs/demo
+
+      - name: Upload demo evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-reports
+          path: runs/demo/**/final-report.md
+          if-no-files-found: ignore
