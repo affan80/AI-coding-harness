@@ -24,8 +24,14 @@ class Planner:
                 all_steps[step.id] = step
 
                 if step.action == StepAction.PATCH:
-                    # Enforce target scope constraint
-                    if not any(step.target.startswith(p) for p in self.allowed_paths):
+                    # Enforce target scope constraint (normalized so "src"
+                    # cannot be escaped by a sibling prefix like "src2/").
+                    normalized = step.target.lstrip("./")
+                    if not any(
+                        normalized == p.strip("./")
+                        or normalized.startswith(p.strip("./").rstrip("/") + "/")
+                        for p in self.allowed_paths
+                    ):
                         raise ValidationError(
                             f"Step {step.id} attempts to write to un-allowed target: {step.target}"
                         )
@@ -62,19 +68,33 @@ class Planner:
         for step_id in all_steps:
             dfs(step_id)
 
-    def get_next_runnable_step(self, plan: ExecutionPlan) -> PlanStep | None:
+    def get_runnable_steps(self, plan: ExecutionPlan) -> list[PlanStep]:
+        """All runnable steps in deterministic goal/step order (issue #49).
+
+        A step is runnable when it is PENDING and every dependency exists
+        and is COMPLETED — an unknown dependency blocks the step instead of
+        silently counting as satisfied.
+        """
+        runnable: list[PlanStep] = []
         for goal in plan.goals:
             for step in goal.steps:
-                if step.status == StepStatus.PENDING:
-                    deps_completed = True
-                    for dep_id in step.dependencies:
-                        dep_step = plan.get_step(dep_id)
-                        if dep_step and dep_step.status != StepStatus.COMPLETED:
-                            deps_completed = False
-                            break
-                    if deps_completed:
-                        return step
-        return None
+                if step.status is not StepStatus.PENDING:
+                    continue
+                if self._dependencies_satisfied(plan, step):
+                    runnable.append(step)
+        return runnable
+
+    @staticmethod
+    def _dependencies_satisfied(plan: ExecutionPlan, step: PlanStep) -> bool:
+        for dep_id in step.dependencies:
+            dep_step = plan.get_step(dep_id)
+            if dep_step is None or dep_step.status is not StepStatus.COMPLETED:
+                return False
+        return True
+
+    def get_next_runnable_step(self, plan: ExecutionPlan) -> PlanStep | None:
+        runnable = self.get_runnable_steps(plan)
+        return runnable[0] if runnable else None
 
     def replan(
         self, current_plan: ExecutionPlan, goal_id: str, new_steps: list[PlanStep]
