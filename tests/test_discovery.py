@@ -1,9 +1,8 @@
 import unittest
-import os
 from pathlib import Path
-import json
 
-from harness.repository.discovery import DiscoveryEngine, SearchResult
+from harness.repository.discovery import DiscoveryEngine
+
 
 class TestDiscoveryEngine(unittest.TestCase):
     def setUp(self):
@@ -14,7 +13,10 @@ class TestDiscoveryEngine(unittest.TestCase):
         results = self.engine.text_search("DiscoveryEngine", is_regex=False)
         self.assertTrue(len(results) > 0)
         # Should find its own declaration
-        found_decl = any(r.path == "harness/repository/discovery.py" and "class DiscoveryEngine" in r.context for r in results)
+        found_decl = any(
+            r.path == "harness/repository/discovery.py" and "class DiscoveryEngine" in r.context
+            for r in results
+        )
         self.assertTrue(found_decl)
 
     def test_symbol_search(self):

@@ -1,11 +1,11 @@
-from typing import List, Optional, Set
-from harness.planning.models import ExecutionPlan, Goal, PlanStep, StepAction, StepStatus
+from harness.planning.models import ExecutionPlan, PlanStep, StepAction, StepStatus
+
 
 class ValidationError(Exception):
     pass
 
 class Planner:
-    def __init__(self, allowed_paths: List[str], max_steps: int = 50):
+    def __init__(self, allowed_paths: list[str], max_steps: int = 50):
         # allowed_paths e.g. ["src/", "tests/", "docs/"]
         self.allowed_paths = allowed_paths
         self.max_steps = max_steps
@@ -22,33 +22,37 @@ class Planner:
                 if step.id in all_steps:
                     raise ValidationError(f"Duplicate step id: {step.id}")
                 all_steps[step.id] = step
-                
+
                 if step.action == StepAction.PATCH:
                     # Enforce target scope constraint
                     if not any(step.target.startswith(p) for p in self.allowed_paths):
-                        raise ValidationError(f"Step {step.id} attempts to write to un-allowed target: {step.target}")
+                        raise ValidationError(
+                            f"Step {step.id} attempts to write to un-allowed target: {step.target}"
+                        )
 
                 if step.action in (StepAction.VERIFY, StepAction.AUDIT):
                     has_verification = True
 
             if not has_verification:
-                raise ValidationError(f"Goal {goal.id} lacks a verification path (verify or audit).")
+                raise ValidationError(
+                    f"Goal {goal.id} lacks a verification path (verify or audit)."
+                )
 
         # Cycle and unknown dependency detection
-        for step_id, step in all_steps.items():
+        for step in all_steps.values():
             for dep in step.dependencies:
                 if dep not in all_steps:
                     raise ValidationError(f"Step {step.id} depends on unknown step {dep}")
 
         visited = set()
         stack = set()
-        
+
         def dfs(curr_id):
             if curr_id in stack:
                 raise ValidationError(f"Circular dependency detected involving {curr_id}")
             if curr_id in visited:
                 return
-            
+
             stack.add(curr_id)
             for dep_id in all_steps[curr_id].dependencies:
                 dfs(dep_id)
@@ -58,7 +62,7 @@ class Planner:
         for step_id in all_steps:
             dfs(step_id)
 
-    def get_next_runnable_step(self, plan: ExecutionPlan) -> Optional[PlanStep]:
+    def get_next_runnable_step(self, plan: ExecutionPlan) -> PlanStep | None:
         for goal in plan.goals:
             for step in goal.steps:
                 if step.status == StepStatus.PENDING:
@@ -72,7 +76,9 @@ class Planner:
                         return step
         return None
 
-    def replan(self, current_plan: ExecutionPlan, goal_id: str, new_steps: List[PlanStep]) -> ExecutionPlan:
+    def replan(
+        self, current_plan: ExecutionPlan, goal_id: str, new_steps: list[PlanStep]
+    ) -> ExecutionPlan:
         """
         Replaces the steps of a specific goal with new_steps to recover from a failure.
         Completed steps in that goal are retained. The entire plan is re-validated.
@@ -81,12 +87,12 @@ class Planner:
             if goal.id == goal_id:
                 retained_steps = [s for s in goal.steps if s.status == StepStatus.COMPLETED]
                 retained_ids = {s.id for s in retained_steps}
-                
+
                 for ns in new_steps:
                     if ns.id not in retained_ids:
                         retained_steps.append(ns)
-                        
+
                 goal.steps = retained_steps
-        
+
         self.validate_plan(current_plan)
         return current_plan
