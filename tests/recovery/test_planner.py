@@ -1,176 +1,167 @@
-"""Issue #64: bounded recovery plans, material-difference, re-verification gate."""
+"""Issue #64 — bounded recovery plans through the shared model client."""
+
+from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
-from harness.model.fake import FakeModelClient, ScriptedTurn
-from harness.recovery.classify import FailureKind, classify_failure
-from harness.recovery.planner import (
+from harness.core.budgets import BudgetKind, consume
+from harness.core.models import Budget, BudgetUsage
+from harness.recovery import (
     AttemptRecord,
-    RecoveryError,
-    RecoveryPlanner,
-    Strategy,
-    reverify_ladder,
+    FailureClass,
+    FailureEvidence,
+    LoopDetector,
+    RecoveryDecision,
+    RecoveryPlanError,
+    RecoveryRequest,
+    evaluate_recovery,
+    propose_recovery_plan,
+    reverification_sequence,
 )
+from harness.verification.models import StageName
+
+EXPECTED_REVERIFY = ["targeted_tests", "related_tests", "full_suite", "diff_scope"]
 
 
-def _failure(kind: FailureKind = FailureKind.TEST, **kwargs) -> object:
-    return classify_failure(
-        command="pytest tests/test_auth.py -q",
-        exit_code=1,
-        output="FAILED tests/test_auth.py::test_bad_password - AssertionError: 500 != 401",
+class FakeRecoveryClient:
+    def __init__(self, response: str | object) -> None:
+        self._response = response
+        self.prompts: list[str] = []
+
+    async def generate(self, messages: list[dict], *, response_schema=None) -> str:
+        self.prompts.append(messages[0]["content"])
+        if callable(self._response):
+            return self._response(self.prompts[-1])
+        return str(self._response)
+
+
+def _evidence(**overrides) -> FailureEvidence:
+    defaults = dict(
+        failure_class=FailureClass.TEST,
+        concise_error="AssertionError: add(1, 2) != 4",
+        goal_id="G1",
         stage="targeted_tests",
-        **kwargs,
-    )
-
-
-def _proposal(description="handle InvalidCredentialsError in the login route",
-              targets=("src/routes/login.py",), strategy="repair"):
-    return ScriptedTurn(structured={
-        "strategy": strategy,
-        "repair_description": description,
-        "repair_targets": list(targets),
-    })
-
-
-ALL_STAGES = (
-    "syntax", "build", "reproducer", "targeted_tests",
-    "related_tests", "full_suite", "diff_scope",
-)
-
-
-def test_recovery_plan_starts_at_failed_stage_and_widens():
-    client = FakeModelClient(script=[_proposal()])
-    plan = asyncio.run(RecoveryPlanner(client).plan_recovery(
-        _failure(), allowed_scope=("src/",), goal_text="fix the login bug",
-    ))
-
-    assert plan.strategy is Strategy.REPAIR
-    # code-enforced: the failed stage is first, wider stages follow
-    assert plan.reverify_stages == (
-        "targeted_tests", "related_tests", "full_suite", "diff_scope",
-    )
-    assert plan.reverify_stages == reverify_ladder(
-        "targeted_tests", ALL_STAGES
-    )
-    assert not plan.escalated
-
-
-def test_reverify_ladder_cannot_skip_the_failed_stage():
-    assert reverify_ladder("full_suite", ALL_STAGES) == (
-        "full_suite", "diff_scope",
-    )
-    assert reverify_ladder("syntax", ALL_STAGES) == ALL_STAGES
-    # an unknown stage falls back to the full ladder
-    assert reverify_ladder("nonsense", ALL_STAGES) == ALL_STAGES
-
-
-def test_identical_proposal_is_rejected_as_not_materially_different():
-    prior = AttemptRecord(
-        attempt=1, strategy="repair",
-        repair_description="Handle InvalidCredentialsError in the login route",
-        fingerprint=None, outcome="failed",
-    )
-    from harness.recovery.planner import _fingerprint
-
-    prior = AttemptRecord(
-        attempt=1, strategy="repair",
-        repair_description="handle invalidcredentialserror in the login route",
-        fingerprint=_fingerprint(
-            "Handle InvalidCredentialsError in the login route",
-            ("src/routes/login.py",),
+        failing_command="python -m pytest -q tests/test_math.py::test_add",
+        exit_code=1,
+        affected_paths=("app/math.py",),
+        relevant_tests=("tests/test_math.py::test_add",),
+        prior_attempts=(
+            AttemptRecord(
+                attempt=1, action="reordered imports", fingerprint="fp-a", outcome="failed"
+            ),
         ),
-        outcome="failed",
     )
-    client = FakeModelClient(script=[_proposal()])  # same repair, reworded case
-    plan = asyncio.run(RecoveryPlanner(client).plan_recovery(
-        _failure(), attempt_history=[prior], allowed_scope=("src/",),
-    ))
-
-    assert plan.escalated
-    assert plan.strategy is Strategy.ESCALATE
-    assert "materially identical" in plan.refusal_reason
+    defaults.update(overrides)
+    return FailureEvidence(**defaults)
 
 
-def test_out_of_scope_repair_is_rejected_and_rolls_back():
-    client = FakeModelClient(script=[
-        _proposal(targets=("frontend/app.tsx",))
-    ])
-    plan = asyncio.run(RecoveryPlanner(client).plan_recovery(
-        _failure(), allowed_scope=("src/", "tests/"),
-    ))
-
-    assert plan.strategy is Strategy.ROLLBACK
-    assert plan.escalated
-    assert "outside approved scope" in plan.refusal_reason
-    assert "frontend/app.tsx" in plan.refusal_reason
-    # re-verification is still enforced on the rollback plan
-    assert plan.reverify_stages[0] == "targeted_tests"
+def _plan_json(**overrides) -> str:
+    plan = {
+        "failure_class": "test",
+        "root_cause": "add() subtracts instead of adding",
+        "repair_summary": "return a + b in app/math.py",
+        "repair_actions": [{"kind": "patch", "target": "app/math.py", "detail": "fix operator"}],
+        "reverify_stages": EXPECTED_REVERIFY,
+    }
+    plan.update(overrides)
+    return json.dumps(plan)
 
 
-def test_retry_budget_exhaustion_escalates_without_another_model_call():
-    history = [
-        AttemptRecord(attempt=1, strategy="repair", repair_description="a",
-                      fingerprint="f1", outcome="failed"),
-        AttemptRecord(attempt=2, strategy="repair", repair_description="b",
-                      fingerprint="f2", outcome="failed"),
+def test_prompt_contains_only_the_focused_evidence() -> None:
+    client = FakeRecoveryClient(_plan_json())
+
+    asyncio.run(propose_recovery_plan(_evidence(), client, allowed_scope=("app/",)))
+
+    prompt = client.prompts[0]
+    assert "AssertionError: add(1, 2) != 4" in prompt
+    assert '"goal_id": "G1"' in prompt
+    assert "prior_attempts" in prompt
+    assert "reordered imports" in prompt  # prior attempts are retained
+    assert '"app/"' in prompt  # scope is included
+    # No run history: nothing beyond the evidence bundle is serialized.
+    assert "events.jsonl" not in prompt
+    assert "run_history" not in prompt
+
+
+def test_valid_plan_parses_with_failed_stage_first() -> None:
+    client = FakeRecoveryClient(_plan_json())
+
+    plan = asyncio.run(propose_recovery_plan(_evidence(), client, allowed_scope=("app/",)))
+
+    assert plan.failure_class is FailureClass.TEST
+    assert plan.repair_actions[0].target == "app/math.py"
+    assert list(plan.reverify_stages) == EXPECTED_REVERIFY
+    assert list(plan.reverify_stages) == [
+        stage.value for stage in reverification_sequence(StageName.TARGETED_TESTS)
     ]
-    client = FakeModelClient(script=[])  # would raise if called
-    plan = asyncio.run(RecoveryPlanner(
-        client, max_attempts=2,
-    ).plan_recovery(_failure(), attempt_history=history))
-
-    assert plan.strategy is Strategy.ESCALATE
-    assert plan.escalated
-    assert "retry budget exhausted" in plan.refusal_reason
-    assert len(plan.attempts) == 2  # prior attempts retained verbatim
-    assert client.calls == ()
 
 
-def test_retry_budget_hook_is_honored():
-    client = FakeModelClient(script=[_proposal()])
-    plan = asyncio.run(RecoveryPlanner(
-        client, register_retry=lambda _k: False,
-    ).plan_recovery(_failure()))
-    assert plan.strategy is Strategy.ESCALATE
-    assert client.calls == ()
+def test_reverify_must_rerun_failed_stage_first() -> None:
+    client = FakeRecoveryClient(_plan_json(reverify_stages=["full_suite", "diff_scope"]))
+
+    with pytest.raises(RecoveryPlanError, match="failed stage first"):
+        asyncio.run(propose_recovery_plan(_evidence(), client, allowed_scope=("app/",)))
 
 
-def test_environment_failures_route_to_setup_not_code_repair():
-    failure = classify_failure(
-        command="pytest -q", exit_code=1,
-        output="ModuleNotFoundError: No module named 'httpx'",
+def test_invalid_json_is_rejected_as_plan_failure() -> None:
+    client = FakeRecoveryClient("not json at all")
+
+    with pytest.raises(RecoveryPlanError, match="not valid JSON"):
+        asyncio.run(propose_recovery_plan(_evidence(), client, allowed_scope=("app/",)))
+
+
+def test_out_of_scope_repair_targets_are_rejected() -> None:
+    client = FakeRecoveryClient(
+        _plan_json(
+            repair_actions=[{"kind": "patch", "target": "frontend/app.tsx", "detail": "nope"}]
+        )
     )
-    client = FakeModelClient(script=[_proposal()])
-    plan = asyncio.run(RecoveryPlanner(client).plan_recovery(failure))
 
-    assert plan.strategy is Strategy.ENVIRONMENT_SETUP
-    assert plan.failure.kind is FailureKind.ENVIRONMENT
-    assert plan.failure.is_environment
-    # the model was never asked to repair an environment problem as code
-    assert client.calls == ()
+    with pytest.raises(RecoveryPlanError, match="outside the allowed scope"):
+        asyncio.run(propose_recovery_plan(_evidence(), client, allowed_scope=("backend/",)))
 
 
-def test_max_attempts_must_be_positive():
-    with pytest.raises(ValueError):
-        RecoveryPlanner(FakeModelClient(), max_attempts=0)
+def test_unknown_reverify_stage_is_rejected() -> None:
+    client = FakeRecoveryClient(_plan_json(reverify_stages=["targeted_tests", "vibes"]))
+
+    with pytest.raises(RecoveryPlanError, match="unknown reverify stages"):
+        asyncio.run(propose_recovery_plan(_evidence(), client, allowed_scope=("app/",)))
 
 
-def test_recovery_plan_serializes_for_the_run_directory():
-    client = FakeModelClient(script=[_proposal()])
-    plan = asyncio.run(RecoveryPlanner(client).plan_recovery(
-        _failure(), allowed_scope=("src/",), goal_text="fix the login bug",
-    ))
-    import json
+def test_empty_root_cause_is_rejected() -> None:
+    client = FakeRecoveryClient(_plan_json(root_cause="  "))
 
-    payload = plan.to_dict()
-    assert json.loads(json.dumps(payload)) == payload
-    assert payload["strategy"] == "repair"
+    with pytest.raises(RecoveryPlanError, match="empty root cause"):
+        asyncio.run(propose_recovery_plan(_evidence(), client, allowed_scope=("app/",)))
 
 
-def test_unstructured_model_output_is_a_structured_error():
-    client = FakeModelClient(script=[ScriptedTurn(text="I think you should...")
-                                     ])
-    with pytest.raises(RecoveryError):
-        asyncio.run(RecoveryPlanner(client).plan_recovery(_failure()))
+def test_recovery_flow_consumes_model_call_and_retry_budgets() -> None:
+    budget = Budget(max_model_calls=2, max_retries_per_goal=2)
+    usage = BudgetUsage()
+    client = FakeRecoveryClient(_plan_json())
+
+    evidence = _evidence()
+    # The orchestrator consumes a model call around each generate().
+    usage = consume(budget, usage, BudgetKind.MODEL_CALLS)
+    plan = asyncio.run(propose_recovery_plan(evidence, client, allowed_scope=("app/",)))
+    outcome, usage = evaluate_recovery(
+        RecoveryRequest(
+            goal_id="G1",
+            failure_class=evidence.failure_class,
+            fingerprint="fp-1",
+            plan=plan,
+        ),
+        budget,
+        usage,
+        LoopDetector(),
+    )
+
+    assert outcome.decision is RecoveryDecision.RETRY
+    assert usage.model_calls == 1
+    assert usage.retries_for("G1") == 1
+    assert outcome.plan is not None
+    # Re-verification cannot be skipped: the plan reruns the failed stage.
+    assert outcome.plan.reverify_stages[0] == "targeted_tests"

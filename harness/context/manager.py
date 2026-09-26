@@ -44,12 +44,41 @@ class ContextMetrics:
     compaction_events: int = 0
 
 class ContextManager:
-    def __init__(self, capabilities: ModelCapabilities, safe_ratio: float = 0.8):
+    """Token budgeting and priority enforcement (issue #45; PRD §§12.1-12.3).
+
+    The safe budget is derived from the model capabilities with output
+    headroom reserved: ``safe = (max_context - max_output) * safe_ratio``.
+    P0-P2 items are non-evictable (objective, constraints, current step,
+    active failure, plan, target source); compaction evicts strictly from
+    P7 upward through P3 and never crosses the P2 boundary.
+    """
+
+    # Priorities that compaction may never drop (PRD §12.3).
+    NON_EVICTABLE_BELOW = Priority.P2_TARGET
+
+    def __init__(
+        self,
+        capabilities: ModelCapabilities,
+        safe_ratio: float = 0.8,
+        reserve_output_headroom: bool = True,
+    ):
         self.capabilities = capabilities
-        self.safe_capacity = int(capabilities.max_context_tokens * safe_ratio)
+        self.reserve_output_headroom = reserve_output_headroom
+        budget_base = capabilities.max_context_tokens
+        if reserve_output_headroom:
+            budget_base = max(0, capabilities.max_context_tokens - capabilities.max_output_tokens)
+        self.safe_capacity = int(budget_base * safe_ratio)
         self.items: list[ContextItem] = []
         self.metrics = ContextMetrics()
         self.metrics.tokens_by_category = {lvl.value: 0 for lvl in Level}
+
+    def budget(self) -> int:
+        """The safe token budget selected context may never exceed."""
+        return self.safe_capacity
+
+    def over_budget_tokens(self) -> int:
+        """How far the current selection exceeds the safe budget (0 = within)."""
+        return max(0, self.metrics.total_tokens - self.safe_capacity)
 
     def add_item(self, item: ContextItem):
         self.items.append(item)
@@ -67,32 +96,40 @@ class ContextManager:
             self.metrics.tokens_by_category[i.level.value] += i.tokens
 
     def compact(self) -> list[ContextItem]:
-        """
-        Sort items by priority. Evict lowest priority items until within safe capacity.
-        P0 items cannot be evicted even if they exceed capacity (though they shouldn't).
+        """Enforce the safe budget with strict eviction order.
+
+        P0-P2 are non-evictable. Everything else is evicted from the lowest
+        priority first (P7 background, then P6 metadata, ... up through P3
+        tests) until the selection fits the safe budget.
         """
         if self.metrics.total_tokens <= self.safe_capacity:
             return self.items
 
         self.metrics.compaction_events += 1
 
-        # Sort items: P0 first (0), then P1 (1)...
-        self.items.sort(key=lambda x: x.priority)
+        protected = [i for i in self.items if i.priority <= self.NON_EVICTABLE_BELOW]
+        evictable = sorted(
+            (i for i in self.items if i.priority > self.NON_EVICTABLE_BELOW),
+            key=lambda x: x.priority,
+            reverse=True,  # worst priority evicted first
+        )
 
-        retained = []
-        current_tokens = 0
+        retained = list(protected)
+        current_tokens = sum(i.tokens for i in protected)
 
-        for item in self.items:
-            if item.priority == Priority.P0_CRITICAL:
+        evicted: list[ContextItem] = []
+        for item in evictable:
+            if current_tokens + item.tokens <= self.safe_capacity:
                 retained.append(item)
                 current_tokens += item.tokens
             else:
-                if current_tokens + item.tokens <= self.safe_capacity:
-                    retained.append(item)
-                    current_tokens += item.tokens
+                evicted.append(item)
 
+        # Deterministic order for the assembled context.
+        retained.sort(key=lambda x: x.priority)
         self.items = retained
         self._recalculate_metrics()
+        self._last_evicted = evicted
         return self.items
 
     def get_context(self) -> str:

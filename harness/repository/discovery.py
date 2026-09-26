@@ -15,10 +15,62 @@ class SearchResult:
     match_reason: str
     truncation_status: bool
     context: str
+    evidence_ref: str = ""
+
+
+@dataclass
+class TreeResult:
+    """Bounded, ignore-aware repository tree (issue #42)."""
+
+    entries: list[str]
+    total_files: int
+    truncated: bool
+    truncation_reasons: list[str]
+    evidence_ref: str = ""
 
 class DiscoveryEngine:
     def __init__(self, repo_path: str):
         self.repo_path = Path(repo_path).resolve()
+        self._search_seq = 0
+
+    def _next_evidence_ref(self) -> str:
+        self._search_seq += 1
+        return f"search-{self._search_seq:04d}"
+
+    def bounded_tree(self, max_entries: int = 200) -> TreeResult:
+        """Ignore-aware repository tree with hard entry and depth bounds.
+
+        Filtering (built-in exclusions, .gitignore, traversal caps) is
+        delegated to the inventory builder so tree output and the candidate
+        inventory can never disagree (issue #42; PRD §§12.4, 13).
+        """
+        from harness.repository.inventory import InventoryLimits, build_inventory
+
+        limits = InventoryLimits(max_files=max_entries)
+        result = build_inventory(self.repo_path, limits)
+        entries = [f.path for f in result.files]
+        return TreeResult(
+            entries=entries,
+            total_files=len(result.files),
+            truncated=result.truncated,
+            truncation_reasons=list(result.truncation_reasons),
+            evidence_ref=self._next_evidence_ref(),
+        )
+
+    @staticmethod
+    def _cap_results(
+        results: list["SearchResult"], max_results: int, evidence_ref: str
+    ) -> list["SearchResult"]:
+        """Bound results; the last kept entry reports the truncation."""
+        if len(results) > max_results:
+            kept = results[:max_results]
+            kept[-1].truncation_status = True
+            kept[-1].context = _cap_context(kept[-1].context)
+        else:
+            kept = results
+        for item in kept:
+            item.evidence_ref = evidence_ref
+        return kept
 
     def _run_cmd(self, cmd: list[str], check_exit: bool = False) -> str:
         try:
@@ -63,7 +115,10 @@ class DiscoveryEngine:
                     pass
         return results
 
-    def text_search(self, query: str, is_regex: bool = False) -> list[SearchResult]:
+    def text_search(
+        self, query: str, is_regex: bool = False, *, max_results: int = 50
+    ) -> list[SearchResult]:
+        evidence_ref = self._next_evidence_ref()
         results = []
         # Attempt to use git grep since it respects gitignore natively and is commonly available
         cmd = ["git", "grep", "--untracked", "-n", "-i"]
@@ -76,7 +131,9 @@ class DiscoveryEngine:
         output = self._run_cmd(cmd)
         if not output.strip():
             # Try fallback search
-            return self._fallback_search(query, is_regex)
+            return self._cap_results(
+                self._fallback_search(query, is_regex), max_results, evidence_ref
+            )
 
         for line in output.splitlines():
             if not line.strip():
@@ -92,9 +149,11 @@ class DiscoveryEngine:
                     truncation_status=False,
                     context=content.strip()
                 ))
-        return results
+        return self._cap_results(results, max_results, evidence_ref)
 
-    def symbol_search(self, symbol: str) -> list[SearchResult]:
+    def symbol_search(
+        self, symbol: str, *, max_results: int = 50
+    ) -> list[SearchResult]:
         """
         Looks for symbol declarations.
         Fallback to text_search if language isn't explicitly parsed.
@@ -105,25 +164,29 @@ class DiscoveryEngine:
         regex_query = rf"(class|def|function|const|let|var|type|interface)\s+{symbol}\b"
 
         # Find declaration candidates
-        candidates = self.text_search(regex_query, is_regex=True)
+        candidates = self.text_search(regex_query, is_regex=True,
+                                      max_results=max_results)
         if candidates:
             for c in candidates:
                 c.match_reason = f"Symbol declaration for '{symbol}'"
             results.extend(candidates)
         else:
             # Fallback exact text match
-            fallback = self.text_search(symbol, is_regex=False)
+            fallback = self.text_search(symbol, is_regex=False,
+                                        max_results=max_results)
             for c in fallback:
                 c.match_reason = f"Possible symbol '{symbol}'"
             results.extend(fallback)
 
         return results
 
-    def reference_lookup(self, symbol: str) -> list[SearchResult]:
+    def reference_lookup(
+        self, symbol: str, *, max_results: int = 50
+    ) -> list[SearchResult]:
         """
         Looks for symbol usage/references/callers.
         """
-        results = self.text_search(symbol, is_regex=False)
+        results = self.text_search(symbol, is_regex=False, max_results=max_results)
         for res in results:
             res.match_reason = f"Reference to '{symbol}'"
         return results
@@ -205,3 +268,7 @@ class DiscoveryEngine:
             return path.read_text(encoding='utf-8')
         except Exception:
             return ""
+
+
+def _cap_context(context: str, limit: int = 200) -> str:
+    return context if len(context) <= limit else context[: limit - 3] + "..."
