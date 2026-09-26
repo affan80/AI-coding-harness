@@ -1,0 +1,46 @@
+name: Release Artifact
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify
+        run: ./scripts/ci.sh
+
+      - name: Build source artifact
+        run: |
+          mkdir -p dist
+          git archive --format=tar.gz --prefix=ai-coding-harness/ -o dist/ai-coding-harness-${GITHUB_REF_NAME}.tar.gz HEAD
+          sha256sum dist/ai-coding-harness-${GITHUB_REF_NAME}.tar.gz > dist/ai-coding-harness-${GITHUB_REF_NAME}.tar.gz.sha256
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-coding-harness-${{ github.ref_name }}
+          path: dist/
+
