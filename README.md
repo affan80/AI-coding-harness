@@ -38,6 +38,25 @@ Verification
 
 The MVP exposes one user workflow rather than separate build, fix, audit, or refactor modes. The harness infers the strategy from the objective.
 
+## Run everything with one command
+
+`make` runs the full pipeline: venv setup, repository hygiene, lint, the test suite, the judge demo scenarios, and a live TUI session on the demo fixture.
+
+```bash
+make
+```
+
+Each stage is also available as a standalone target:
+
+- `make setup` — create `.venv` (via `uv`) and install dev dependencies; idempotent
+- `make hygiene` — repository hygiene checks (`./scripts/ci.sh`)
+- `make lint` — `ruff check .`
+- `make test` — the pytest suite
+- `make demo` — demo scenarios A/B/C with evidence reports under `runs/demo/`
+- `make tui` — live TUI session on `demos/fixtures/feature_repo`; the M1 pipeline stops after repository inspection, so `PARTIAL` (exit code 1) is the expected outcome there
+- `make clean` — remove run artifacts and caches
+- `make help` — list all targets
+
 ## CI/CD
 
 Pull requests and pushes to `main` run `.github/workflows/ci.yml`. The workflow validates repository hygiene and automatically runs Python and Node checks when those project files appear.
