@@ -5,7 +5,7 @@ from harness.telemetry.events import Event, EventRecorder, EventType
 from harness.telemetry.metrics import UsageMetrics
 from harness.telemetry.models import ArtifactRef, ToolCallRecord
 from harness.telemetry.report import ReportInput, generate_report, write_report
-from harness.telemetry.store import ARTIFACT_INLINE_LIMIT, RunStore
+from harness.telemetry.store import ARTIFACT_INLINE_LIMIT, RunStore, read_jsonl
 
 __all__ = [
     "ARTIFACT_INLINE_LIMIT",
@@ -18,5 +18,6 @@ __all__ = [
     "ToolCallRecord",
     "UsageMetrics",
     "generate_report",
+    "read_jsonl",
     "write_report",
 ]
