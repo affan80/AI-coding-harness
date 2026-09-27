@@ -1,10 +1,13 @@
 """Structured run directory with atomic state persistence (PRD §21; FR-12).
 
 One ``RunStore`` owns ``runs/<session-id>/``. Critical state documents are
-written atomically (temp file + fsync + ``os.replace``) so an interrupted
-write leaves the previous valid state readable. Event and tool-call streams
-are append-only JSONL; large tool output goes to ``artifacts/`` and is
-referenced by path and sha256 instead of being copied into records.
+written atomically (temp file + fsync + ``os.replace`` + directory fsync) so an
+interrupted write leaves the previous valid state readable. Event and
+tool-call streams are append-only JSONL; large tool output goes to
+``artifacts/`` (also written atomically) and is referenced by path and sha256
+instead of being copied into records. The :func:`read_jsonl` reader tolerates
+a torn final line — a crash mid-append can only ever damage the last record,
+which is then skipped instead of poisoning the stream.
 """
 
 from __future__ import annotations
@@ -36,6 +39,9 @@ _DOCUMENT_NAMES = (
     "metrics.json",
     "changed-files.json",
 )
+
+# Free-form text documents written atomically (not JSON-serialized).
+_TEXT_DOCUMENT_NAMES = ("final-report.md",)
 
 # Raw tool output at or below this size stays inline in the tool record;
 # anything larger becomes an artifacts/ file referenced by path and hash.
@@ -124,6 +130,12 @@ class RunStore:
         serialized = json.dumps(payload, indent=2, sort_keys=True) + "\n"
         _atomic_write(self.paths.document(name), serialized.encode("utf-8"))
 
+    def write_text_document(self, name: str, text: str) -> None:
+        """Atomically (re)write one free-form text document (e.g. final-report.md)."""
+        if name not in _TEXT_DOCUMENT_NAMES:
+            raise ValueError(f"unknown run text document: {name}")
+        _atomic_write(self.paths.document(name), text.encode("utf-8"))
+
     def finalize(self, status: SessionStatus, stop_reason: str = "") -> None:
         """Record the terminal session status and timestamp."""
         self._write_session(status=status, stop_reason=stop_reason)
@@ -134,7 +146,14 @@ class RunStore:
         existing: dict = {}
         session_path = self.paths.document("session.json")
         if session_path.exists():
-            existing = json.loads(session_path.read_text(encoding="utf-8"))
+            try:
+                existing = json.loads(session_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                # A hand-edited or previously damaged document must never
+                # prevent recording the terminal status.
+                existing = {}
+            if not isinstance(existing, dict):
+                existing = {}
         session = {
             "session_id": self.session_id,
             "status": status.value,
@@ -235,12 +254,30 @@ class RunStore:
         self.paths.artifacts_dir.mkdir(exist_ok=True)
         artifact_path = self.paths.artifacts_dir / f"{tool_id}-output.txt"
         content = output.encode("utf-8")
-        artifact_path.write_bytes(content)
+        # Atomic like the state documents: an interrupted write leaves the
+        # previous artifact (if any) valid and only a stray .tmp behind.
+        _atomic_write(artifact_path, content)
         return ArtifactRef(
             path=str(artifact_path.relative_to(self.run_dir)),
             sha256=hashlib.sha256(content).hexdigest(),
             size=len(content),
         )
+
+    # -- reading the evidence back -------------------------------------------
+
+    def read_events(self) -> list[dict]:
+        """Return every complete event record; a torn final line is skipped."""
+        return read_jsonl(self.paths.stream("events.jsonl"))
+
+    def read_tool_calls(self) -> list[ToolCallRecord]:
+        """Return every complete tool-call record; malformed lines are skipped."""
+        records: list[ToolCallRecord] = []
+        for raw in read_jsonl(self.paths.stream("tool-calls.jsonl")):
+            try:
+                records.append(ToolCallRecord.from_dict(raw))
+            except (KeyError, TypeError, ValueError):
+                continue  # unreadable record: keep the valid prefix
+        return records
 
     # -- patch and verification evidence --------------------------------------
 
@@ -289,6 +326,22 @@ def _atomic_write(path: Path, content: bytes) -> None:
         fh.flush()
         os.fsync(fh.fileno())
     os.replace(tmp, path)
+    _fsync_directory(path.parent)
+
+
+def _fsync_directory(directory: Path) -> None:
+    """Make the rename itself durable; a crash can then only show the old or
+    the new file, never a missing or half-renamed one."""
+    try:
+        fd = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass  # best effort on filesystems that do not support directory fsync
+    finally:
+        os.close(fd)
 
 
 def _append_line(path: Path, record: dict) -> None:
@@ -301,6 +354,29 @@ def _append_line(path: Path, record: dict) -> None:
         os.close(fd)
 
 
+def read_jsonl(path: Path) -> list[dict]:
+    """Read a JSONL stream, skipping blank lines and a torn final record.
+
+    A crash mid-append can damage only the last line of an O_APPEND stream;
+    every complete record before it stays valid and readable.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return []
+    records: list[dict] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue  # torn or corrupted line: skip, keep the valid prefix
+        if isinstance(parsed, dict):
+            records.append(parsed)
+    return records
+
+
 def _summarize(text: str, limit: int = 400) -> str:
     text = text.strip()
     if len(text) <= limit:
@@ -309,12 +385,14 @@ def _summarize(text: str, limit: int = 400) -> str:
 
 
 def reconstruct_run(run_dir: Path) -> dict:
-    """Reconstruct changed files and check outcomes from a run directory (#26).
+    """Reconstruct what happened from a run directory (#2, #26).
 
-    Reads ``changed-files.json``, ``verification.json``, ``patches.diff``, and
-    ``session.json`` — nothing else — which is exactly what a reviewer gets
+    Reads ``session.json``, ``request.json``, ``goals.json``, ``plan.json``,
+    ``changed-files.json``, ``verification.json``, ``events.jsonl``,
+    ``tool-calls.jsonl``, and ``patches.diff`` — everything a reviewer gets
     after any terminal outcome (verified, partial, or failed). Missing
-    documents degrade to empty values instead of failing the reconstruction.
+    documents degrade to empty values instead of failing the reconstruction,
+    and a torn final JSONL line never poisons the read.
     """
     run_dir = Path(run_dir)
 
@@ -324,12 +402,38 @@ def reconstruct_run(run_dir: Path) -> dict:
             return {}
         try:
             return json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
             return {}
 
     session = _load("session.json")
     verification = _load("verification.json")
     changed = _load("changed-files.json")
+    goals_doc = _load("goals.json")
+    plan_doc = _load("plan.json")
+
+    tool_calls: list[dict] = []
+    for raw in read_jsonl(run_dir / "tool-calls.jsonl"):
+        try:
+            record = ToolCallRecord.from_dict(raw)
+        except (KeyError, TypeError, ValueError):
+            continue  # unreadable record: keep the valid prefix
+        tool_calls.append(
+            {
+                "id": record.id,
+                "name": record.name,
+                "status": record.status,
+                "started_at": record.started_at,
+                "duration_ms": record.duration_ms,
+                "truncated": record.truncated,
+                "artifact": (
+                    {"path": record.artifact.path, "sha256": record.artifact.sha256}
+                    if record.artifact
+                    else None
+                ),
+            }
+        )
+
+    events = read_jsonl(run_dir / "events.jsonl")
 
     patch_labels: list[str] = []
     diff_path = run_dir / "patches.diff"
@@ -338,13 +442,26 @@ def reconstruct_run(run_dir: Path) -> dict:
             if line.startswith("--- patch:") and line.endswith(" ---"):
                 patch_labels.append(line[len("--- patch:") : -len(" ---")].strip())
 
+    plan_steps = plan_doc.get("steps", [])
     return {
         "session_id": session.get("session_id", ""),
         "status": session.get("status", ""),
         "stop_reason": session.get("stop_reason", ""),
+        "objective": request_objective(_load("request.json")),
+        "goals": goals_doc.get("goals", []),
+        "plan_present": bool(plan_doc),
+        "plan_steps": len(plan_steps) if isinstance(plan_steps, list) else 0,
         "changed_files": sorted(changed.get("files", [])),
         "patch_count": len(patch_labels),
         "patch_labels": patch_labels,
         "checks": verification.get("checks", []),
         "verification_status": verification.get("status", "not_run"),
+        "event_count": len(events),
+        "tool_calls": tool_calls,
     }
+
+
+def request_objective(request_doc: dict) -> str:
+    """Best-effort objective from request.json for the reconstruction view."""
+    objective = request_doc.get("objective", "")
+    return objective if isinstance(objective, str) else ""

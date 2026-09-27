@@ -61,6 +61,8 @@ class SessionSummary:
     findings: list[str] = field(default_factory=list)
     detail: str = ""
     goals: list[dict[str, Any]] = field(default_factory=list)
+    plan: list[dict[str, Any]] = field(default_factory=list)
+    """Ordered plan steps, when the runner produced one (PRD §14 shape)."""
 
 
 Runner = Callable[..., SessionSummary]
@@ -95,7 +97,10 @@ def run_session(
         )
         emit_both(recorder, store, "state", "session cancelled by user")
 
-    # Evidence: checks, changed files, and the final report.
+    # Evidence: goals, plan, checks, changed files, and the final report.
+    store.write_document("goals.json", {"goals": summary.goals})
+    if summary.plan:
+        store.write_document("plan.json", {"steps": summary.plan})
     store.write_verification({
         "status": "pass" if summary.checks and all(
             c.passed for c in summary.checks
@@ -131,8 +136,8 @@ def run_session(
         evidence=[{"ref_id": "ev-run-dir", "kind": "artifact",
                    "description": "run directory", "path": str(store.run_dir)}],
     ))
-    report_path = store.run_dir / "final-report.md"
-    report_path.write_text(report, encoding="utf-8")
+    report_path = store.paths.document("final-report.md")
+    store.write_text_document("final-report.md", report)
     store.finalize(
         _session_status(summary.status),
         stop_reason=summary.detail,
@@ -209,4 +214,6 @@ def self_check_runner(request, budget, store, recorder) -> SessionSummary:
         )],
         goals=[{"id": "G1", "title": "self-check", "status": "COMPLETED",
                 "acceptance_criteria": ["exit code 0"]}],
+        plan=[{"id": "S1", "action": "verify", "target": "self-check",
+               "depends_on": []}],
     )
