@@ -131,6 +131,23 @@ def assemble_context(
     scored.sort(key=lambda entry: entry[0], reverse=True)
 
     assembled = AssembledContext()
+    # Discovered size (PRD §12.9): everything the scan saw — candidate text
+    # plus, for lazily loaded files, their on-disk size (stat only, no read)
+    # — estimated with the same 4-chars-per-token heuristic the manager
+    # uses, so metrics can report selected-versus-discovered size.
+    def _discovered_tokens(candidate: Candidate) -> int:
+        chars = len(candidate.path) + len(candidate.summary) + len(candidate.source)
+        if not candidate.source:
+            disk = root / candidate.path
+            try:
+                chars += disk.stat().st_size
+            except OSError:
+                pass
+        return max(1, (chars + 3) // 4)
+
+    manager.metrics.discovered_tokens = sum(
+        _discovered_tokens(c) for c in candidates
+    )
     # L0: metadata for the whole bounded scan.
     for score, reason, candidate in scored:
         manager.add_item(ContextItem(
@@ -163,14 +180,17 @@ def assemble_context(
                 source = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-        manager.add_item(ContextItem(
+        # Bind the item before adding: add_item may auto-compact, which
+        # reorders (and evicts from) manager.items, so items[-1] is unsafe.
+        l2_item = ContextItem(
             id=f"l2:{candidate.path}",
             content=source[:_PREVIEW_CHARS],
             priority=Priority.P2_TARGET if not candidate.is_test else Priority.P3_TESTS,
             level=Level.L2_EXACT,
             reason=f"L2 exact; score {score}; {reason}",
-        ))
-        assembled.selected.append(manager.items[-1])
+        )
+        manager.add_item(l2_item)
+        assembled.selected.append(l2_item)
 
     selected_ids = {item.id for item in assembled.selected}
     assembled.unselected = [
