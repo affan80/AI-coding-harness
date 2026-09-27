@@ -27,3 +27,13 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# Explicit discovery: the flat layout holds several top-level packages
+# (harness, tui, demos, scripts) plus tests/, which setuptools refuses to
+# guess. Without this, `pip install -e '.[dev]'` (RELEASE_NOTES.md) fails.
+[tool.setuptools.packages.find]
+include = ["harness*", "tui*", "demos*", "scripts*"]
