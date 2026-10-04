@@ -12,6 +12,7 @@ Exit codes let scripted runs determine the outcome without parsing prose:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections.abc import Callable
 from enum import IntEnum
@@ -97,12 +98,70 @@ def collect_request(
     """Build one UserRequest from flags and/or interactive prompts."""
     repository = args.repository
     objective = args.objective
-    if repository is None and interactive:
-        repository = input_fn("Repository\n> ").strip() or "."
+
+    if interactive:
+        # 1. API Key check
+        has_key = any(
+            os.environ.get(k)
+            for k in (
+                "OPENAI_API_KEY",
+                "ANTHROPIC_API_KEY",
+                "HARNESS_OPENAI_API_KEY",
+                "HARNESS_ANTHROPIC_API_KEY",
+            )
+        )
+        if not has_key:
+            print("\n┌──────────────────────────────────────────────────────────┐")
+            print("│ AI CODING HARNESS - INTERACTIVE SETUP                    │")
+            print("└──────────────────────────────────────────────────────────┘")
+            key = input_fn("🔑 Enter API Key (OpenAI / Anthropic) [press Enter for offline fake mode]: ").strip()
+            if key:
+                os.environ["HARNESS_OPENAI_API_KEY"] = key
+                if "anthropic" in key.lower():
+                    os.environ["HARNESS_MODEL_PROVIDER"] = "anthropic"
+                else:
+                    os.environ["HARNESS_MODEL_PROVIDER"] = "openai"
+            else:
+                os.environ["HARNESS_MODEL_PROVIDER"] = "fake"
+
+        # 2. Repository / GitHub Link or Folder
+        if repository is None:
+            print("\n📂 Repository Target:")
+            repo_input = input_fn("Enter GitHub repository URL or local folder path [default: .]: ").strip()
+            repository = repo_input if repo_input else "."
+
+        # Handle GitHub URL cloning
+        if repository.startswith("http://") or repository.startswith("https://") or repository.startswith("git@"):
+            import subprocess
+            repo_name = repository.rstrip("/").split("/")[-1].replace(".git", "")
+            clone_dir = Path("runs") / "cloned_repos" / repo_name
+            clone_dir.parent.mkdir(parents=True, exist_ok=True)
+            if not clone_dir.exists():
+                print(f"📥 Cloning repository from {repository} ...")
+                subprocess.run(["git", "clone", repository, str(clone_dir)], check=True)
+            repository = str(clone_dir)
+
+        # 3. What you want to do (Action / Objective selection)
+        if objective is None:
+            print("\n🎯 Select what you want to do:")
+            print("  [1] Add feature / write code with tests")
+            print("  [2] Fix bug / audit security vulnerabilities")
+            print("  [3] Refactor codebase / improve architecture")
+            print("  [4] Custom objective")
+            choice = input_fn("Select option [1-4] or enter objective directly: ").strip()
+            if choice == "1":
+                objective = input_fn("Enter feature description / objective: ").strip() or "Add feature with tests"
+            elif choice == "2":
+                objective = input_fn("Enter bug description / vulnerability to fix: ").strip() or "Fix bugs and audit security"
+            elif choice == "3":
+                objective = input_fn("Enter refactoring goal: ").strip() or "Refactor code for cleanliness and maintainability"
+            elif choice == "4" or not choice:
+                objective = input_fn("Enter custom objective: ").strip()
+            else:
+                objective = choice
+
     if repository is None:
         repository = "."
-    if objective is None and interactive:
-        objective = input_fn("Objective\n> ").strip()
     objective = (objective or "").strip()
     if not objective:
         raise CliError(

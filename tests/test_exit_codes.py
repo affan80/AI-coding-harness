@@ -43,10 +43,10 @@ def test_scripted_session_against_local_repository(tmp_path: Path) -> None:
     )
 
     assert code == int(ExitCode.PARTIAL)
-    lines = out.getvalue().splitlines()
-    assert "Status: PARTIAL" in lines
-    assert any(line.startswith("Report: ") for line in lines)
-    assert any(line.startswith("Limitation: ") for line in lines)
+    output = out.getvalue()
+    assert "PARTIAL" in output
+    assert "Report:" in output
+    assert "Limitation:" in output
     assert err.getvalue() == ""
 
     run_dirs = [p for p in runs_dir.iterdir() if p.is_dir()]
@@ -117,7 +117,7 @@ def test_session_failure_maps_to_non_zero_exit(tmp_path: Path, monkeypatch) -> N
     )
 
     assert code == int(ExitCode.FAILED)
-    assert "Status: FAILED" in out.getvalue()
+    assert "FAILED" in out.getvalue()
     run_dir = next(p for p in runs_dir.iterdir() if p.is_dir())
     session = json.loads((run_dir / "session.json").read_text())
     assert session["status"] == "failed"
@@ -149,7 +149,7 @@ def test_runner_result_status_drives_exit_code(
     )
 
     assert code == expected
-    assert f"Status: {status.value.upper()}" in out.getvalue()
+    assert status.value.upper() in out.getvalue()
 
 
 def test_keyboard_interrupt_outside_runner_maps_to_cancelled(

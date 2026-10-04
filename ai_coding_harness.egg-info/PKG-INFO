@@ -1,0 +1,164 @@
+Metadata-Version: 2.4
+Name: ai-coding-harness
+Version: 0.1.0
+Summary: Autonomous AI software engineering harness: repository + objective in, evidence-backed result out.
+License: MIT
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: ruff>=0.4; extra == "dev"
+
+# Autonomous AI Software Engineering Harness
+
+Hackathon project for an autonomous coding harness that accepts a repository and a natural-language objective, understands the codebase, plans work, edits code, verifies the result, recovers from failures, and returns evidence.
+
+## Product documents
+
+- [Product Requirements Document](docs/PRD.md)
+- [4-person execution plan](docs/TEAM_PLAN.md)
+- [Parent and sub-issue breakdown](docs/ISSUE_BREAKDOWN.md)
+- [Contribution rules](CONTRIBUTING.md)
+- [Implementation backlog](https://github.com/affan80/pentester-AI-harness/issues)
+
+## Core product flow
+
+```text
+Repository + Objective
+        ↓
+Intent / Goal Analysis
+        ↓
+Repository Intelligence
+        ↓
+Context Assembly
+        ↓
+Planning
+        ↓
+Execution + Tools
+        ↓
+Verification
+   ┌────┴────┐
+ PASS       FAIL
+   │          │
+ Audit     Recovery
+   │          │
+   └────┬─────┘
+        ↓
+ Evidence-backed result
+```
+
+The terminal interface accepts a project folder or HTTPS Git repository link,
+then offers three workflows: bug/pipeline fix, end-to-end build, and autonomous
+testing. The objective tells the engine what to fix or build.
+
+## Run everything with one command
+
+Requires Python 3.12+ and Make; Git is required for repository links. `make` runs
+setup, compilation, repository hygiene, lint, all tests, the three demo scenarios,
+and a non-interactive TUI test run. It does not wait for menu input.
+
+```bash
+make
+```
+
+Each stage is also available as a standalone target:
+
+- `make setup` — create `.venv` and install the project, pytest, and Ruff
+- `make build` — compile harness, TUI, demos, and scripts
+- `make hygiene` — repository hygiene checks (`./scripts/ci.sh`)
+- `make lint` — `ruff check .`
+- `make test` — the pytest suite
+- `make demo` — demo scenarios A/B/C with evidence reports under `runs/demo/`
+- `make check` — hygiene, lint, and all tests
+- `make tui` or `make run` — open the interactive project/workflow menu
+- `make tui-smoke` — run the fixture's actual tests through the TUI
+- `make clean` — remove run artifacts and caches
+- `make help` — list all targets
+
+## Start an interactive session
+
+```bash
+make setup
+make tui
+```
+
+```text
+Project folder or HTTPS repository link
+> /path/to/project
+Choose mode
+  1. Bug and pipeline fix
+  2. End-to-end build
+  3. Autonomous end-to-end testing
+> 3
+Objective (Enter to run detected tests)
+>
+```
+
+| Mode | Behavior |
+| --- | --- |
+| `fix` | Use the model to plan a bug/pipeline repair, apply scoped patches, verify, and retry within budget |
+| `build` | Use the model to plan and implement the requested feature, including new files, then verify |
+| `test` | Detect Python/Node checks, run the existing suite and E2E command, and save results without model-driven source edits |
+
+Testing automatically uses a Node `test:e2e` or `e2e` script when present. Python
+E2E tests run as part of the full pytest suite. Use `--test-command` for an
+additional command. Target project dependencies and required services must be
+installed/running. Missing tests never produce a verified result. Testing does
+not generate a new browser/test framework or repair failures; use build/fix for
+those changes. A model audit is not performed by the integrated runner.
+
+HTTPS URLs are cloned to a fresh retained folder under `runs/checkouts/`; local
+folders are used directly. Fix/build can change files in that folder. Use
+`--scope` to restrict file edits. Repository links must not contain credentials;
+use Git's configured authentication for private repositories.
+
+Scripted examples (after setup):
+
+```bash
+.venv/bin/python -m tui.cli ./my-project --mode test --non-interactive
+.venv/bin/python -m tui.cli ./my-project --mode test --test-command "npm run test:e2e"
+.venv/bin/python -m tui.cli https://github.com/owner/repo.git --mode test
+.venv/bin/python -m tui.cli ./my-project "Fix the failing CI pipeline" --mode fix
+.venv/bin/python -m tui.cli ./my-project "Build a login page with tests" --mode build
+```
+
+Fix/build require a configured live model with structured output support. For
+the existing OpenAI-compatible adapter, export configuration in your shell:
+
+```bash
+export HARNESS_MODEL_PROVIDER=openai
+export HARNESS_MODEL="your-model-id"
+# Set HARNESS_OPENAI_API_KEY using your local secret manager/shell environment.
+# Optionally set HARNESS_MODEL_BASE_URL for an OpenAI-compatible endpoint.
+make tui
+```
+
+See `.env.example` for the configuration names. `.env` files are not loaded
+automatically. The default fake client is for scripted tests, so live fix/build
+fail with an actionable message until configured. No credentials are needed for
+`make demo`, `make tui-smoke`, or testing mode.
+
+Every session saves `session.json`, `events.jsonl`, and `final-report.md` under
+`runs/`; executed verification also saves `verification.json` and command
+artifacts. Exit codes: `0` verified, `1` partial/inconclusive, `2` failed,
+`3` cancelled, `64` invalid input. For backward compatibility, positional
+repository/objective calls without `--mode` retain the inspection-only workflow.
+
+The patch generator currently accepts source files up to 12,000 characters;
+larger targets fail explicitly instead of receiving incomplete source context.
+
+## CI/CD
+
+Pull requests and pushes to `main` run `.github/workflows/ci.yml`. The workflow validates repository hygiene and automatically runs Python and Node checks when those project files appear.
+
+Tags matching `v*` run `.github/workflows/release.yml`, re-run the repository checks, create a source archive and SHA-256 checksum, and upload them as release artifacts. A deployment target is intentionally not assumed until the runtime destination is chosen.
+
+Run the same checks locally with:
+
+```bash
+source .venv/bin/activate
+./scripts/ci.sh
+```
+
+Missing pytest/Ruff fails the checks. Generated ignored files (including `.venv`
+and `runs`) are excluded from the repository file-size check.
